@@ -14,6 +14,8 @@ export interface BookActions {
 	promoteActive(path: string): void;
 	planChapter(): void;
 	updateStats(): void;
+	addTodo(): void;
+	completeTodo(manualId: string): void;
 	cancelJob(jobId: string): void;
 	dismissJob(jobId: string): void;
 }
@@ -90,6 +92,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	const bar = root.createDiv({ cls: "bh-actions" });
 	if (ctx.role === "manuscript") bar.createEl("button", { cls: "bh-button mod-cta", text: "Make this note a chapter" }).addEventListener("click", () => bookActions.promoteActive(ctx.activePath));
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
+	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
@@ -104,6 +107,8 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 			const notePath = t.notePath;
 			if (notePath === undefined) li.createSpan({ text: ` ${t.message}` });
 			else li.createEl("button", { cls: "bh-link", text: t.message }).addEventListener("click", () => bookActions.openNote(notePath));
+			const manualId = t.manualId;
+			if (manualId !== undefined) li.createEl("button", { cls: "bh-icon-button", text: "Done", attr: { "aria-label": `Mark done: ${t.message}` } }).addEventListener("click", () => bookActions.completeTodo(manualId));
 		}
 	}
 	if (overview.rows.length === 0) {

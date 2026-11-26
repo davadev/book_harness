@@ -31,7 +31,8 @@ export interface ChapterProblem {
 export const chaptersFolder = (book: Book): string => `${book.folder}/${MANAGED_FOLDER}/chapters`;
 export const chapterPath = (book: Book, id: string): string => `${chaptersFolder(book)}/${id}.md`;
 
-function serialize(c: Chapter): string {
+/** Paths inside a record are relative to the book folder, so a copied or renamed book folder keeps working. */
+function serialize(c: Chapter, book: Book): string {
 	return serializeManagedNote({
 		frontmatter: {
 			bh_schema: CHAPTER_SCHEMA,
@@ -41,7 +42,7 @@ function serialize(c: Chapter): string {
 			designation: c.designation,
 			order: c.order,
 			status: c.status,
-			note_path: c.notePath,
+			note_path: c.notePath === null ? null : c.notePath.slice(book.folder.length + 1),
 		},
 		body: `# ${c.designation}\n\nChapter record managed by Book Harness. The manuscript note is bound by \`note_path\`; this record never contains manuscript text.\n`,
 	});
@@ -56,9 +57,9 @@ function parse(path: string, text: string, book: Book): Chapter {
 	if (typeof fm.designation !== "string" || fm.designation.trim() === "") throw new ManagedNoteError("Chapter designation is missing.");
 	if (typeof fm.order !== "number" || !Number.isFinite(fm.order)) throw new ManagedNoteError("Chapter order must be a number.");
 	if (!isChapterStatus(fm.status)) throw new ManagedNoteError("Chapter status is invalid.");
-	const notePath: unknown = fm.note_path ?? null;
-	if (notePath !== null && (typeof notePath !== "string" || notePath === "")) throw new ManagedNoteError("Chapter note path is invalid.");
-	return { id: fm.bh_id, bookId: book.id, designation: fm.designation.trim(), order: fm.order, status: fm.status, notePath, path };
+	const relative: unknown = fm.note_path ?? null;
+	if (relative !== null && (typeof relative !== "string" || relative === "" || relative.startsWith("/") || relative.split("/").includes(".."))) throw new ManagedNoteError("Chapter note path is invalid.");
+	return { id: fm.bh_id, bookId: book.id, designation: fm.designation.trim(), order: fm.order, status: fm.status, notePath: relative === null ? null : `${book.folder}/${relative}`, path };
 }
 
 /** Load every chapter record of a book. Invalid records are reported, never hidden. */
@@ -66,9 +67,17 @@ export async function listChapters(vault: VaultPort, book: Book): Promise<{ chap
 	const prefix = `${chaptersFolder(book)}/`;
 	const chapters: Chapter[] = [];
 	const problems: ChapterProblem[] = [];
+	const seen = new Map<string, string>();
 	for (const path of vault.markdownPaths().filter((p) => p.startsWith(prefix)).sort()) {
 		try {
-			chapters.push(parse(path, await vault.read(path), book));
+			const chapter = parse(path, await vault.read(path), book);
+			const first = seen.get(chapter.id);
+			if (first !== undefined) {
+				problems.push({ path, reason: `Duplicate chapter id, also used by ${first}. Is this a sync conflict copy?` });
+				continue;
+			}
+			seen.set(chapter.id, path);
+			chapters.push(chapter);
 		} catch (e) {
 			problems.push({ path, reason: e instanceof ManagedNoteError ? e.message : String(e) });
 		}
@@ -158,7 +167,7 @@ export async function addChapter(vault: VaultPort, book: Book, existing: readonl
 	if (req.order !== undefined && !Number.isFinite(req.order)) throw new Error("Chapter order must be a number.");
 	const id = newId("ch", random);
 	const chapter: Chapter = { id, bookId: book.id, designation, order: req.order ?? nextOrder(existing), status, notePath, path: chapterPath(book, id) };
-	await vault.create(chapter.path, serialize(chapter));
+	await vault.create(chapter.path, serialize(chapter, book));
 	return chapter;
 }
 
@@ -167,7 +176,7 @@ async function update(vault: VaultPort, book: Book, chapter: Chapter, change: (c
 	const before = await vault.read(chapter.path);
 	const current = parse(chapter.path, before, book);
 	const next = change(current);
-	if (!(await vault.replaceIfUnchanged(chapter.path, before, serialize(next)))) throw new Error("This chapter changed on another device; reload and try again.");
+	if (!(await vault.replaceIfUnchanged(chapter.path, before, serialize(next, book)))) throw new Error("This chapter changed on another device; reload and try again.");
 	return next;
 }
 

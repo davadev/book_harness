@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -156,6 +156,18 @@ describe("overview rendering", () => {
 		(root.querySelector(".bh-todo button") as HTMLButtonElement).click();
 		expect(a.openNote).toHaveBeenCalledWith("A/a.md");
 		expect(root.querySelector(".bh-info")).toBeNull();
+	});
+
+	it("lets the author add their own to-dos and mark them done", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const manual = [{ id: "manual:abc", text: "Check the map", done: false }];
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], manual), a);
+		expect(text()).toContain("Check the map");
+		click("Add a to-do");
+		expect(a.addTodo).toHaveBeenCalled();
+		(root.querySelector('button[aria-label="Mark done: Check the map"]') as HTMLButtonElement).click();
+		expect(a.completeTodo).toHaveBeenCalledWith("manual:abc");
 	});
 
 	it("labels informational notes differently from requirements", () => {

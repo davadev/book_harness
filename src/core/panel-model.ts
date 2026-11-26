@@ -2,6 +2,7 @@ import { bookForPath, type Book } from "./books";
 import { readingOrder, type Chapter } from "./chapters";
 import type { JobRecord } from "./jobs";
 import type { ChapterStats } from "./task-state";
+import { manualAsTodos, type ManualTodo } from "./manual-todos";
 import { deriveTodos, type Todo } from "./todos";
 
 /** What the side panel should show for the note that is open. Pure so every case is table-testable. */
@@ -41,9 +42,9 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = []): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = []): Overview {
 	const ordered = readingOrder(chapters);
-	const todos = deriveTodos(book, chapters, exists);
+	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies)];
 	return {
 		rows: ordered.map((chapter, i) => ({
 			chapter,

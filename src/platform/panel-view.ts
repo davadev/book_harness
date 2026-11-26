@@ -3,6 +3,8 @@ import { listBooks, type Book } from "../core/books";
 import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
 import type { ChapterStatus } from "../core/status";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
+import { addManualTodo, listManualTodos, setManualTodoDone } from "../core/manual-todos";
+import { findConflictCopies } from "../core/sync-conflicts";
 import { JobRunner, dismissJob, listJobs, presentJobs } from "../core/jobs";
 import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
@@ -81,9 +83,10 @@ export class BookHarnessView extends ItemView {
 			const shown = book ? chapters.filter((c) => c.bookId === book.id) : [];
 			const stats = new Map<string, ChapterStats>();
 			for (const c of shown) stats.set(c.id, await chapterStats(vault, book as Book, c));
+			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner)) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -140,6 +143,8 @@ export class BookHarnessView extends ItemView {
 						return dismissJob(vault, book, job.state === "running" ? { ...job, state: "interrupted" } : job);
 					}),
 				),
+			addTodo: () => new PromptModal(this.app, "Add a to-do", "To do", "", (v) => run(addManualTodo(vault, book, v))).open(),
+			completeTodo: (id) => run(setManualTodoDone(vault, book, id, true)),
 			planChapter: () => new PromptModal(this.app, "Plan a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v }, platformRandom))).open(),
 		};
 	}

@@ -26,6 +26,7 @@ beforeEach(() => {
 		this.textContent = t;
 	};
 	Notice.instances.length = 0;
+	document.body.replaceChildren();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -199,7 +200,7 @@ describe("BookHarnessView", () => {
 		await vi.waitFor(() => expect([...store.values()].some((t) => t.includes("designation: Epilogue"))).toBe(true));
 		button(view, "Make this note a chapter").click();
 		submit("Chapter 3");
-		await vi.waitFor(() => expect([...store.values()].some((t) => t.includes("note_path: Book/loose.md"))).toBe(true));
+		await vi.waitFor(() => expect([...store.values()].some((t) => t.includes("note_path: loose.md"))).toBe(true));
 		await vi.waitFor(() => expect(text(view)).toContain("Epilogue"));
 		button(view, "Rename", Array.from(view.contentEl.querySelectorAll(".bh-chapter")).find((l) => l.textContent?.includes("Epilogue")) as HTMLElement).click();
 		submit("Chapter 3");
@@ -328,6 +329,32 @@ describe("BookHarnessView edge cases", () => {
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That job record no longer exists."));
 	});
 
+	it("adds a personal to-do and marks it done", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add a to-do"));
+		button(view, "Add a to-do").click();
+		const input = document.body.querySelector("input") as HTMLInputElement;
+		input.value = "Check the map";
+		input.dispatchEvent(new Event("input"));
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Save")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Check the map"));
+		expect([...store.entries()].find(([p]) => p.endsWith("/todos.md"))?.[1]).toContain("- [ ] Check the map");
+		(view.contentEl.querySelector('button[aria-label="Mark done: Check the map"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Check the map"));
+	});
+
+	it("lists sync conflict copies as to-dos that open the copy", async () => {
+		const { fake, view, store } = await setup();
+		store.set("Book/one (conflicted copy 2026-11-26).md", "x");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("A sync conflict copy exists"));
+		button(view, "A sync conflict copy exists: Book/one (conflicted copy 2026-11-26).md. Compare it with the original and keep the version you want.").click();
+		expect(fake.openFile).toHaveBeenCalled();
+	});
+
 	it("reports non-Error failures from an action", async () => {
 		const { fake, view } = await setup();
 		fake.state.active = "Book/one.md";
@@ -346,7 +373,7 @@ describe("following renames", () => {
 		const { fake, store } = await setup();
 		store.set("Book/renamed.md", "One");
 		await onVaultRename(fake.app, { path: "Book/renamed.md" } as never, "Book/one.md");
-		expect([...store.values()].some((t) => t.includes("note_path: Book/renamed.md"))).toBe(true);
+		expect([...store.values()].some((t) => t.includes("note_path: renamed.md"))).toBe(true);
 	});
 
 	it("logs instead of throwing when the vault cannot be read", async () => {

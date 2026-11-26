@@ -12,7 +12,7 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 |---|---|---|---|---|
 | AC-ST-1 | Register two books in one vault; similarly named characters/chapters never leak between them (search, graph, extraction, TODOs, export). | U, I, UI | 2 (+7, 12) | In progress: registry + path isolation unit-tested (`books.test.ts`); search/graph/export parts pending |
 | AC-ST-2 | Promote arbitrary-named files to Prologue, Chapter 1, 10, 15; reading/export order follows assignment; known gaps and planned slots shown; rename/move retains associations. | U, I, E | 2 | Not started |
-| AC-ST-3 | Copy the complete book folder and assets to another configured installation without `.obsidian`: entity knowledge, translation mapping, timeline evidence, pending tasks, prompt overrides, chat history, unresolved proposals retained; indexes rebuild; divergent synced changes detected, not overwritten. | I, E, D | 3, 13 | Not started |
+| AC-ST-3 | Copy the complete book folder and assets to another configured installation without `.obsidian`: entity knowledge, translation mapping, timeline evidence, pending tasks, prompt overrides, chat history, unresolved proposals retained; indexes rebuild; divergent synced changes detected, not overwritten. | I, E, D | 3, 13 | In progress: copy test passes for what exists (`portability.test.ts`); conflict copies detected; other record types arrive with their features |
 
 ## AI control and manuscript safety
 

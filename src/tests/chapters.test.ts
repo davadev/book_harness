@@ -117,6 +117,16 @@ describe("editing chapter records", () => {
 	});
 });
 
+describe("stored paths", () => {
+	it("are relative to the book folder so a record never names its location in the vault", async () => {
+		const { raw, vault, rnd, book } = await setup();
+		const [pro] = await promoteAll(vault, book, rnd);
+		const stored = raw.files.get(chapterPath(book, pro!.id))!;
+		expect(stored).toContain("note_path: zzz scratch.md");
+		expect(stored).not.toContain("Book/zzz scratch.md");
+	});
+});
+
 describe("renames and conflicts", () => {
 	it("follows a renamed note and unbinds one moved out of the book", async () => {
 		const { raw, vault, rnd, book } = await setup();
@@ -167,6 +177,8 @@ describe("chapter record validation", () => {
 		["bad order", "designation: A\norder: x", /order must be a number/],
 		["bad status", "designation: A\norder: 1\nstatus: done", /status is invalid/],
 		["bad path", "designation: A\norder: 1\nstatus: planned\nnote_path: 5", /note path is invalid/],
+		["absolute path", "designation: A\norder: 1\nstatus: planned\nnote_path: /etc/passwd", /note path is invalid/],
+		["path escaping the book", "designation: A\norder: 1\nstatus: planned\nnote_path: ../Other/x.md", /note path is invalid/],
 	])("rejects a record with %s", async (_n, extra, reason) => {
 		const { raw, vault, book } = await setup();
 		const base = { schema: "bh_schema: 1", type: "bh_type: chapter", id: "bh_id: ch_aaaaaaaaaaaaaaaa", book: `bh_book: ${book.id}` };

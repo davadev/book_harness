@@ -2,7 +2,7 @@ import type { Book } from "./books";
 import { findConflicts, findGaps, readingOrder, type Chapter } from "./chapters";
 import { meetsRequirement } from "./status";
 
-export type TodoKind = "chapter-unfinished" | "chapter-no-file" | "chapter-note-missing" | "chapter-gap" | "chapter-conflict";
+export type TodoKind = "manual" | "sync-conflict" | "chapter-unfinished" | "chapter-no-file" | "chapter-note-missing" | "chapter-gap" | "chapter-conflict";
 
 export interface Todo {
 	/** Stable: the same situation always yields the same id, so lists dedupe and resolved items disappear on their own. */
@@ -14,11 +14,14 @@ export interface Todo {
 	chapterId?: string;
 	/** Note the author can open to act on it. */
 	notePath?: string;
+	/** Set for the author's own items, which can be marked done. */
+	manualId?: string;
 }
 
 /** Deterministic: derived only from configuration and recorded state. No model, no inference, nothing persisted. */
-export function deriveTodos(book: Book, chapters: readonly Chapter[], exists: (path: string) => boolean): Todo[] {
+export function deriveTodos(book: Book, chapters: readonly Chapter[], exists: (path: string) => boolean, conflictCopies: readonly string[] = []): Todo[] {
 	const out: Todo[] = [];
+	for (const path of conflictCopies) out.push({ id: `sync-conflict:${path}`, kind: "sync-conflict", severity: "required", notePath: path, message: `A sync conflict copy exists: ${path}. Compare it with the original and keep the version you want.` });
 	for (const c of readingOrder(chapters)) {
 		if (c.notePath === null) {
 			out.push({ id: `chapter-no-file:${c.id}`, kind: "chapter-no-file", severity: "required", chapterId: c.id, message: `${c.designation} has no manuscript note yet.` });

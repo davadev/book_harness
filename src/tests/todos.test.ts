@@ -49,3 +49,10 @@ describe("deriveTodos", () => {
 		expect(new Set(first.map((t) => t.id)).size).toBe(first.length);
 	});
 });
+
+describe("sync conflict copies", () => {
+	it("turn up as required to-dos that open the copy", () => {
+		const todos = deriveTodos(book("planned"), [], all, ["B/Chapter 1 (conflicted copy 2026-11-26).md"]);
+		expect(todos).toEqual([{ id: "sync-conflict:B/Chapter 1 (conflicted copy 2026-11-26).md", kind: "sync-conflict", severity: "required", notePath: "B/Chapter 1 (conflicted copy 2026-11-26).md", message: expect.stringContaining("Compare it with the original") }]);
+	});
+});
