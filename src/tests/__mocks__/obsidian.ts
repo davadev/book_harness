@@ -233,11 +233,18 @@ export function normalizePath(p: string): string {
   const n = p.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
   return n === "" ? "/" : n;
 }
-export async function requestUrl(_p: any): Promise<{ status: number; text: string; arrayBuffer: ArrayBuffer }> {
-  return { status: 200, text: "", arrayBuffer: new ArrayBuffer(0) };
-}
 
 /** Records the icon name on the element instead of rendering an SVG; enough for tests that assert which icon a button got. */
 export function setIcon(el: { setAttribute?: (k: string, v: string) => void }, name: string): void {
   el.setAttribute?.("data-icon", name);
+}
+
+/** Scripted `requestUrl`: tests push responses (or errors) and read what was asked. */
+export const requestUrlMock = {
+  calls: [] as Array<Record<string, unknown>>,
+  next: null as null | (() => Promise<{ status: number; text: string }>),
+};
+export function requestUrl(req: Record<string, unknown>): Promise<{ status: number; text: string }> {
+  requestUrlMock.calls.push(req);
+  return requestUrlMock.next ? requestUrlMock.next() : Promise.resolve({ status: 200, text: "{}" });
 }

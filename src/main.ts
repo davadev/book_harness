@@ -6,14 +6,18 @@ import { onVaultRename } from "./platform/follow-renames";
 import { PANEL_VIEW_TYPE, BookHarnessView } from "./platform/panel-view";
 import { registerActiveFolder } from "./platform/register-book";
 import { PluginSettingsTab } from "./settings/SettingsTab";
+import type { NetworkPort } from "./core/ai/network";
+import { obsidianNetwork } from "./platform/network";
 import { DEFAULT_SETTINGS, normalizeSettings, type BookHarnessSettings } from "./settings/defaults";
 
 const CRASH_THRESHOLD = 5;
 const SURVIVED_MS = 30_000;
+const DEVICE_KEY = "book-harness-device";
 
 export default class BookHarnessPlugin extends Plugin {
 	settings: BookHarnessSettings = { ...DEFAULT_SETTINGS };
 	private readonly runner = new JobRunner();
+	readonly network: NetworkPort = obsidianNetwork;
 
 	async onload(): Promise<void> {
 		try {
@@ -60,12 +64,14 @@ export default class BookHarnessPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = normalizeSettings(await this.loadData());
+		this.settings = normalizeSettings(await this.loadData(), this.app.loadLocalStorage(DEVICE_KEY));
 		setLogLevel(this.settings.logLevel);
 	}
 
 	async saveSettings(): Promise<void> {
 		setLogLevel(this.settings.logLevel);
-		await this.saveData(this.settings);
+		// Only the shared part goes to data.json; this device's server address never syncs.
+		await this.saveData({ logLevel: this.settings.logLevel });
+		this.app.saveLocalStorage(DEVICE_KEY, this.settings.device);
 	}
 }

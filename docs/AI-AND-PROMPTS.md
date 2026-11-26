@@ -45,3 +45,11 @@ Before a user-initiated job: scope (chapters, tasks, number of subcalls, bounded
 - Mock model port with scripted responses (valid, malformed, truncated, injection, slow, aborted) for deterministic CI; **mocked outcomes are never reported as model quality.**
 - Opt-in real-model eval harness (`scripts/model-eval.mjs`, env-gated, never in release gate) records model id/digest/date and results in `docs/evals/`.
 - Contract tests from real Ollama responses (values synthetic) per playbook EXTERNAL-SERVICES rule 1 once S5 captures real answers.
+
+## 7. Ollama API facts used (checked 2026-11-26 against Ollama's published REST reference)
+
+- `POST /api/chat`: `model`, `messages[{role,content}]`, `stream` (false → one response object), `format` ("json" or a JSON schema), `options` (e.g. `temperature`; `num_ctx` appears in the generate examples), `keep_alive`. Response: `message.content`, `done`, `done_reason`, `prompt_eval_count`, `eval_count`, `total_duration` (nanoseconds).
+- `POST /api/embed`: `model`, `input` (string or list), `truncate`, `options`, `keep_alive`, `dimensions`. Response: `embeddings` (array of arrays), `model`, `total_duration`, `prompt_eval_count`.
+- `GET /api/tags`: `models[]` with `name`, `model`, `digest`, `size`, `details.parameter_size`. `POST /api/show`: includes `capabilities` (example `["completion","vision"]`; the full set is not documented) and `model_info`. `GET /api/version` → `{"version": ...}`.
+- **Not documented:** error response bodies and status codes for chat/embed/tags/show/version. The client therefore never relies on an error body: it maps 403 (host rejected), 404 with a model name (model missing), other non-2xx, unreachable, timeout and malformed JSON to typed errors with remedies.
+- Implemented in `src/core/ai/` (client, connection test) and `src/platform/network.ts` (`requestUrl` transport with enforced timeout/cancel). The server address and model names are device-local settings (never in synced data). Nothing is sent until the author starts an action or presses Test connection (verified by a lifecycle test, AC-C-1).

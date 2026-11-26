@@ -20,10 +20,11 @@ function makePlugin(files: Record<string, string> = {}, failWrite = false) {
 		getRightLeaf: vi.fn((): unknown => null),
 		revealLeaf: vi.fn(() => Promise.resolve()),
 	};
-	const plugin = new BookHarnessPlugin({ vault: { adapter, configDir: ".obsidian", on: (_n: string, cb: (...a: unknown[]) => unknown) => (vaultHandlers.push(cb), {}), getMarkdownFiles: () => [] }, workspace } as never, { id: "book-harness", dir: ".obsidian/plugins/book-harness" } as never);
+	const local = new Map<string, unknown>();
+	const plugin = new BookHarnessPlugin({ loadLocalStorage: (k: string) => local.get(k) ?? null, saveLocalStorage: (k: string, v: unknown) => local.set(k, v), vault: { adapter, configDir: ".obsidian", on: (_n: string, cb: (...a: unknown[]) => unknown) => (vaultHandlers.push(cb), {}), getMarkdownFiles: () => [] }, workspace } as never, { id: "book-harness", dir: ".obsidian/plugins/book-harness" } as never);
 	const cleanups: Array<() => void> = [];
 	(plugin as unknown as { register: (f: () => void) => void }).register = (f) => cleanups.push(f);
-	return { plugin, written, cleanups, workspace, vaultHandlers };
+	return { plugin, written, cleanups, workspace, vaultHandlers, local };
 }
 
 const stub = (p: BookHarnessPlugin) => p as unknown as { settingTabs: unknown[]; data: unknown };
@@ -106,11 +107,18 @@ describe("BookHarnessPlugin", () => {
 		await expect(plugin.onload()).rejects.toBe("odd");
 	});
 
-	it("saves settings through saveData", async () => {
-		const { plugin } = makePlugin();
+	it("saves shared settings to the data file and this device's server settings only to device storage", async () => {
+		const { plugin, local } = makePlugin();
 		await plugin.loadSettings();
 		plugin.settings.logLevel = "debug";
+		plugin.settings.device.endpoint = "http://phone-only:11434";
 		await plugin.saveSettings();
 		expect(stub(plugin).data).toEqual({ logLevel: "debug" });
+		expect(JSON.stringify(stub(plugin).data)).not.toContain("phone-only");
+		expect(local.get("book-harness-device")).toMatchObject({ endpoint: "http://phone-only:11434" });
+		const again = makePlugin();
+		again.local.set("book-harness-device", { endpoint: "http://other:1" });
+		await again.plugin.loadSettings();
+		expect(again.plugin.settings.device.endpoint).toBe("http://other:1");
 	});
 });

@@ -42,8 +42,8 @@ describe("architecture", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("never calls a model from core or platform code yet (no network API in src)", () => {
-		const offenders = sources().filter((s) => /\brequestUrl\b|\bfetch\(|XMLHttpRequest|WebSocket/.test(code(s.text))).map((s) => s.file);
+	it("reaches the network only through the one adapter that implements the network port", () => {
+		const offenders = sources().filter((s) => s.file !== "platform/network.ts" && /\brequestUrl\b|\bfetch\(|XMLHttpRequest|WebSocket/.test(code(s.text))).map((s) => s.file);
 		expect(offenders).toEqual([]);
 	});
 });
