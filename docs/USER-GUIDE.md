@@ -20,7 +20,7 @@ Book Harness is early software. **Nothing in it has been run in a real Obsidian 
 
 Settings → Book Harness. Give the address of your Ollama server (for example `http://192.168.1.20:11434`) and the model names. These settings stay on this device and are not synced. **Test connection** lists the models the server has. From a phone, the server must be reachable over your network; Android is not verified.
 
-What we measured with real local models is in `docs/evals/`. Short version: summaries, "ask the book", entity finding and translation into German work as drafts; small models make factual slips and miss some typos; **translation into Czech was poor with the two models tried** (invented and ungrammatical words), so treat it as a rough starting point for a human translator, and expect Slovak to be no better.
+What we measured with real local models is in `docs/evals/`. Short version: summaries, "ask the book", entity finding and translation into German work as drafts; small models make factual slips and miss some typos; **translation into Czech was poor with gemma4:12b and ornith-1.5:35b, ornith:9b, gemma4:e4b and nemotron** (invented and ungrammatical words, repeated paragraphs), but fluent with **qwen3.6:35b-a3b** in one short test (a few grammar slips remain); a human translator should still check it, and Slovak was not tested. Proofreading lists the mistakes it finds instead of rewriting the paragraph, which found 4-5 of 5 injected typos with the two models tried.
 
 ## What you can do
 

@@ -5,7 +5,7 @@ import { GuardedVault } from "../core/guarded-vault";
 import { ModelError } from "../core/ai/errors";
 import type { NetRequest, NetworkPort } from "../core/ai/network";
 import { OllamaClient } from "../core/ai/ollama";
-import { PROOFREAD_PROMPT, checkCorrection, coveragePath, coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, settleCoverage } from "../core/proofread";
+import { PROOFREAD_PROMPT, applyFixes, checkCorrection, coveragePath, coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, settleCoverage } from "../core/proofread";
 import { applyAccepted, decide, listProposals } from "../core/proposals";
 import { hashText, proseSegments } from "../core/segmentation";
 import { FakeVault, counterRandom } from "./__mocks__/fakeVault";
@@ -182,7 +182,60 @@ describe("proofreading a chapter (AC-P-1)", () => {
 	it("refuses a planned chapter", async () => {
 		const { vault, book, chapter, deps } = await setup();
 		await expect(proofreadChapter(vault, book, { ...chapter, notePath: null }, deps(modelFor({})))).rejects.toThrow(/no manuscript note/);
-		expect(PROOFREAD_PROMPT.version).toBe(1);
+		expect(PROOFREAD_PROMPT.version).toBe(2);
+	});
+});
+
+describe("fixes instead of rewriting", () => {
+	/** Scripted model that answers with a list of fixes, in the order the calls come. */
+	const fixing = (answers: unknown[], seen: string[] = []): NetworkPort & { seen: string[] } => {
+		let i = 0;
+		return { seen, request: (req: NetRequest) => {
+			seen.push((JSON.parse(req.body!).messages as Array<{ content: string }>).map((m) => m.content).join("\n---\n"));
+			const a = answers[Math.min(i++, answers.length - 1)];
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: typeof a === "string" ? a : JSON.stringify(a) } }) });
+		} };
+	};
+
+	it("applies each fix once, at a whole word, and lists what could not be applied", () => {
+		expect(applyFixes("The captian saw a captian.", [{ wrong: "captian", right: "captain" }])).toEqual({ corrected: "The captain saw a captian.", missing: [] });
+		expect(applyFixes("Two stairs and a stair.", [{ wrong: "stair", right: "step" }])).toEqual({ corrected: "Two stairs and a step.", missing: [] });
+		expect(applyFixes("Pre-stair work.", [{ wrong: "stair", right: "step" }]).corrected).toBe("Pre-step work.");
+		expect(applyFixes("The tide.", [{ wrong: "tyde", right: "tide" }, { wrong: "The", right: "A" }])).toEqual({ corrected: "A tide.", missing: ["tyde"] });
+		expect(applyFixes("Wait... what?", [{ wrong: "...", right: "…" }]).corrected).toBe("Wait… what?");
+		expect(applyFixes("unstairs", [{ wrong: "stairs", right: "x" }])).toEqual({ corrected: "unstairs", missing: ["stairs"] });
+		expect(applyFixes("stairsx and stairs", [{ wrong: "stairs", right: "steps" }]).corrected).toBe("stairsx and steps");
+	});
+
+	it("turns a list of fixes into one proposal, sends only the paragraph, and leaves a paragraph with no fixes alone", async () => {
+		const { vault, book, chapter, deps } = await setup();
+		const net = fixing([{ fixes: [{ wrong: "captian", right: "captain" }] }, { fixes: [] }]);
+		const report = await proofreadChapter(vault, book, chapter, deps(net));
+		expect(report).toMatchObject({ checked: 2, proposed: 1, unchanged: 1, failed: [] });
+		expect(report.proposal?.edits).toHaveLength(1);
+		expect(report.proposal?.edits[0]).toMatchObject({ original: "captian", replacement: "captain" });
+		expect(net.seen[0]).toContain("<paragraph>\nThe captian walked");
+		expect(net.seen[0]).not.toContain("Second line of the same paragraph");
+	});
+
+	it("asks again when a fix names a word that is not in the paragraph, and reports it when it stays wrong", async () => {
+		const { vault, book, chapter, deps } = await setup();
+		const net = fixing([{ fixes: [{ wrong: "captin", right: "captain" }] }, { fixes: [{ wrong: "captian", right: "captain" }] }, { fixes: [] }]);
+		const report = await proofreadChapter(vault, book, chapter, deps(net));
+		expect(net.seen[1]).toContain("is not in the paragraph as a whole word");
+		expect(report.proposed).toBe(1);
+		const stubborn = await proofreadChapter(vault, book, chapter, deps(fixing([{ fixes: [{ wrong: "captin", right: "captain" }] }]), { all: true }));
+		expect(stubborn.failed[0]).toMatch(/Paragraph 1: .*not in the paragraph/);
+	});
+
+	it("ignores empty or unchanged fixes and malformed entries, and still understands a whole corrected paragraph", async () => {
+		const { vault, book, chapter, deps } = await setup();
+		const junk = { fixes: [null, 5, { wrong: "", right: "x" }, { wrong: "tide", right: "tide" }, { wrong: 3, right: 4 }] };
+		const r = await proofreadChapter(vault, book, chapter, deps(fixing([junk, '{"corrected": "She didn\'t answer. The tide came in.\\nSecond line of the same paragraph."}', "[1]"])));
+		expect(r.unchanged).toBe(1);
+		expect(r.proposed).toBe(1);
+		const nothing = await proofreadChapter(vault, book, chapter, deps(fixing(["null", "5"]), { all: true }));
+		expect(nothing.checked + nothing.failed.length).toBe(2);
 	});
 });
 
