@@ -68,8 +68,8 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 
 | ID | Scenario | Types | Phase | Status |
 |---|---|---|---|---|
-| AC-TR-1 | Create two target-language variants of one chapter without changing chapter identity/order; modify one source paragraph → variants pending without inference; user-triggered sync updates only affected content; handles insert/delete/move/split/merge and ambiguous mapping. | U, I, M | 10 | Not started |
-| AC-TR-2 | Manually revise a translation, then edit its source: manual edit preserved, conflict flagged, primary untouched; missing/outdated required variants appear as TODOs. | U, I | 10 | Not started |
+| AC-TR-1 | Create two target-language variants of one chapter without changing chapter identity/order; modify one source paragraph → variants pending without inference; user-triggered sync updates only affected content; handles insert/delete/move/split/merge and ambiguous mapping. | U, I, M | 10 | Partial (simulation, scripted model): variants keep the chapter id, stale without inference, only affected paragraphs updated, insert/delete/move detected by content, split/merge/ambiguous become decisions; "user-triggered sync updates only affected content" proven; not run against a real model |
+| AC-TR-2 | Manually revise a translation, then edit its source: manual edit preserved, conflict flagged, primary untouched; missing/outdated required variants appear as TODOs. | U, I | 10 | Met by simulation: edited translation is kept, conflict recorded, primary untouched (asserted byte for byte), to-dos for missing/stale/undecided |
 
 ## Workflow and publishing
 

@@ -1325,3 +1325,109 @@ describe("BookHarnessView ask the book", () => {
 		await vi.waitFor(() => expect(text(view)).not.toContain("Asking: door"));
 	});
 });
+
+describe("BookHarnessView translations", () => {
+	const modalButton = (label: string) => Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label).at(-1) as HTMLButtonElement;
+	const german = (answer: (src: string) => string) => (req?: { body?: string }) => {
+		const user = (JSON.parse(req?.body ?? "{}") as { messages: Array<{ content: string }> }).messages[1]!.content;
+		const src = /<paragraph>\n([\s\S]*?)\n<\/paragraph>/.exec(user)![1]!;
+		return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ translation: answer(src) }) } }) });
+	};
+	async function ready() {
+		const ctx = await setup();
+		const bookPath = [...ctx.store.keys()].find((p) => p.endsWith("/book.md")) as string;
+		ctx.store.set(bookPath, (ctx.store.get(bookPath) as string).replace("target_languages: []", "target_languages:\n  - de"));
+		ctx.store.set("Book/one.md", "First paragraph here.\n\nSecond paragraph here.");
+		ctx.host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		ctx.fake.state.active = "Book/one.md";
+		await ctx.view.onOpen();
+		return ctx;
+	}
+
+	it("translates after confirmation, then updates only what changed and asks before replacing an edit", async () => {
+		const { view, host, store } = await ready();
+		await vi.waitFor(() => expect(text(view)).toContain("German (de)"));
+		expect(text(view)).toContain("Chapter 1: not translated yet (2 paragraphs)");
+		expect(text(view)).toContain("Chapter 2: not translated yet (1 paragraph)");
+		host.network.request.mockImplementation(german((s) => `DE:${s}`));
+		button(view, "Translate or update German (3 paragraphs)").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Translate into German"));
+		expect(document.body.textContent).toContain('using the model "gen"');
+		expect(host.network.request).not.toHaveBeenCalled();
+		modalButton("Translate").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: up to date"));
+		expect(host.network.request).toHaveBeenCalledTimes(3);
+		const variant = [...store.entries()].find(([p]) => p.includes("/translations/de/ch_") && !p.includes("_align"))![1];
+		expect(variant).toContain("DE:First paragraph here.");
+		expect(store.get("Book/one.md")).toBe("First paragraph here.\n\nSecond paragraph here.");
+
+		// an edit by the author plus a source change is a decision, never an overwrite
+		const vPath = [...store.keys()].find((p) => p.includes("/translations/de/ch_") && !p.includes("_align"))!;
+		store.set(vPath, (store.get(vPath) as string).replace("DE:Second paragraph here.", "Mein Text."));
+		store.set("Book/one.md", "First paragraph here.\n\nSecond paragraph there.");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
+		host.network.request.mockClear();
+		button(view, "Check German").click(); // a conflict is recorded without any model call
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: waiting for your decision"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		expect(text(view)).toContain("Your translation: Mein Text.");
+		expect(store.get(vPath)).toContain("Mein Text.");
+		// keep mine records the decision without contacting the server
+		(view.contentEl.querySelector('button[aria-label^="Keep my translation"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: up to date"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		expect(store.get(vPath)).toContain("Mein Text.");
+		// a new translation replaces it only after confirmation
+		store.set("Book/one.md", "First paragraph here.\n\nSecond paragraph again.");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
+		button(view, "Check German").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: waiting for your decision"));
+		(view.contentEl.querySelector('button[aria-label^="Translate this paragraph again"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("replaces your own translation"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		modalButton("Replace mine").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: up to date"));
+		expect(store.get(vPath)).toContain("DE:Second paragraph again.");
+		expect(store.get(vPath)).not.toContain("Mein Text.");
+	});
+
+	it("says when nothing needs translating or the server is not set up", async () => {
+		const { view, host, store } = await ready();
+		await vi.waitFor(() => expect(text(view)).toContain("German (de)"));
+		host.network.request.mockImplementation(german((s) => `DE:${s}`));
+		button(view, "Translate or update German (3 paragraphs)").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Translate into German"));
+		modalButton("Translate").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: up to date"));
+		button(view, "Check German").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Nothing needs translating into de right now."));
+		host.settings.device = { endpoint: "", generationModel: "", embeddingModel: "" };
+		button(view, "Check German").click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
+		const conflictless = (view.contentEl.querySelector('button[aria-label^="Translate this paragraph again"]'));
+		expect(conflictless).toBeNull();
+		void store;
+	});
+
+	it("does not offer a new translation when the server is not set up", async () => {
+		const { view, host, store } = await ready();
+		await vi.waitFor(() => expect(text(view)).toContain("German (de)"));
+		host.network.request.mockImplementation(german((s) => `DE:${s}`));
+		button(view, "Translate or update German (3 paragraphs)").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Translate into German"));
+		modalButton("Translate").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: up to date"));
+		const vPath = [...store.keys()].find((p) => p.includes("/translations/de/ch_") && !p.includes("_align"))!;
+		store.set(vPath, (store.get(vPath) as string).replace("DE:Second paragraph here.", "Mein Text."));
+		store.set("Book/one.md", "First paragraph here.\n\nSecond paragraph there.");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
+		button(view, "Check German").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: waiting for your decision"));
+		host.settings.device = { endpoint: "", generationModel: "", embeddingModel: "" };
+		(view.contentEl.querySelector('button[aria-label^="Translate this paragraph again"]') as HTMLButtonElement).click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
+	});
+});

@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -467,5 +467,45 @@ describe("ask the book rendering", () => {
 		expect(a.ask).not.toHaveBeenCalled();
 		input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
 		expect(a.ask).toHaveBeenCalledWith("Why?");
+	});
+});
+
+describe("translations rendering", () => {
+	const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+	const chapter = (n: number) => ch(`c${n}`, `Chapter ${n}`, n, `A/${n}.md`);
+	const counts = { keep: 3, retranslate: 2, translate: 1, copy: 0, conflict: 1, dropped: 1 };
+	const conflict = (kind: "edited-and-changed" | "restructured") => ({ id: `cf_${kind}`, kind, segmentId: "sg", sourceNow: ["Now."], sourceBefore: ["Before."], target: kind === "restructured" ? null : "Mine.", reason: `Reason ${kind}` });
+	const row = (n: number, status: object, toTranslate = 0, conflicts: ReturnType<typeof conflict>[] = []) => ({ chapter: chapter(n), status: { language: "de", conflicts: conflicts.length, plan: null, ...status }, conflicts, toTranslate });
+
+	it("says what state each translation is in and offers the decisions", () => {
+		const a = actions();
+		const rows = [row(1, { state: "no-source" }), row(2, { state: "missing" }, 1), row(3, { state: "current" }), row(4, { state: "conflicts" }, 0, [conflict("edited-and-changed"), conflict("restructured")]), row(5, { state: "broken", problem: "Record missing." }), row(6, { state: "stale", plan: { counts } }, 3), row(7, { state: "stale", plan: { counts: { keep: 3, retranslate: 0, translate: 0, copy: 0, conflict: 0, dropped: 0 } } })];
+		const translations = [{ language: "de", name: "German", rows, toTranslate: 5 }, { language: "cs", name: "Czech", rows: [], toTranslate: 0 }];
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), translations: translations as never }, a);
+		const t = text();
+		expect(t).toContain("Chapter 1: no chapter note to translate");
+		expect(t).toContain("Chapter 2: not translated yet (1 paragraph)");
+		expect(t).toContain("Chapter 3: up to date");
+		expect(t).toContain("Chapter 4: waiting for your decision (2)");
+		expect(t).toContain("Chapter 5: cannot be read: Record missing.");
+		expect(t).toContain("Chapter 6: out of date: the chapter changed since it was translated (2 changed, 1 new, 1 removed, 1 need your decision)");
+		expect(t).toContain("Chapter 7: out of date: the chapter changed since it was translated");
+		expect(t).toContain("Reason restructured");
+		expect(t).toContain("The source now: Now.");
+		expect(t).toContain("Your translation: Mine.");
+		click("Translate or update German (5 paragraphs)");
+		expect(a.translate).toHaveBeenCalledWith("de");
+		click("Check Czech");
+		expect(a.translate).toHaveBeenCalledWith("cs");
+		(root.querySelector('button[aria-label^="Keep my translation"]') as HTMLButtonElement).click();
+		expect(a.resolveConflict).toHaveBeenCalledWith("c4", "de", "cf_edited-and-changed", "mine");
+		const machine = Array.from(root.querySelectorAll('button[aria-label^="Translate this paragraph again"]'));
+		expect(machine).toHaveLength(2);
+		expect(machine.map((m) => m.textContent)).toEqual(["Use a new translation", "Translate it"]);
+		(machine[0] as HTMLButtonElement).click();
+		expect(a.resolveConflict).toHaveBeenCalledWith("c4", "de", "cf_edited-and-changed", "machine");
+		const single = [{ language: "de", name: "German", rows: [row(8, { state: "missing" }, 1)], toTranslate: 1 }];
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), translations: single as never }, a);
+		expect(text()).toContain("Translate or update German (1 paragraph)");
 	});
 });

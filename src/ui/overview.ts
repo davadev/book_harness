@@ -1,3 +1,4 @@
+import type { TranslationRow } from "../core/translation/overview";
 import type { AskResult, Citation } from "../core/agent/ask";
 import type { BookStatistics, Occurrence, WordRow } from "../core/stats/statistics";
 import type { TimelineRow, TimelineView } from "../core/temporal/timeline";
@@ -44,6 +45,8 @@ export interface BookActions {
 	addEvent(): void;
 	exportEpub(): void;
 	toggleStatistics(): void;
+	translate(language: string): void;
+	resolveConflict(chapterId: string, language: string, conflictId: string, choice: "mine" | "machine"): void;
 	ask(question: string): void;
 	openCitation(c: Citation): void;
 	openOccurrence(o: Occurrence, word: string): void;
@@ -77,7 +80,7 @@ const JOB_LABEL: Record<JobRecord["state"], string> = {
 	dismissed: "",
 };
 
-const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading", "entities.extract": "Finding entities", "embeddings.build": "Meaning index" };
+const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading", "entities.extract": "Finding entities", "embeddings.build": "Meaning index", "translation.sync": "Translation" };
 
 function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-job" });
@@ -134,6 +137,43 @@ function renderSearch(root: HTMLElement, overview: Overview, actions: BookAction
 		const context = overview.contexts.get(`${r.ref.chapterId}:${r.ref.passageId}`);
 		if (!context) row.createEl("button", { cls: "bh-link", text: "Show context" }).addEventListener("click", () => actions.showContext(r));
 		else renderContext(row, context);
+	}
+}
+
+function translationLine(r: TranslationRow): string {
+	const s = r.status;
+	if (s.state === "no-source") return "no chapter note to translate";
+	if (s.state === "missing") return `not translated yet (${r.toTranslate} paragraph${r.toTranslate === 1 ? "" : "s"})`;
+	if (s.state === "current") return "up to date";
+	if (s.state === "conflicts") return `waiting for your decision (${s.conflicts})`;
+	if (s.state === "broken") return `cannot be read: ${s.problem as string}`;
+	const c = (s.plan as NonNullable<typeof s.plan>).counts;
+	const parts = [c.retranslate > 0 ? `${c.retranslate} changed` : "", c.translate > 0 ? `${c.translate} new` : "", c.dropped > 0 ? `${c.dropped} removed` : "", c.conflict > 0 ? `${c.conflict} need your decision` : ""].filter((x) => x !== "");
+	return `out of date: the chapter changed since it was translated${parts.length ? ` (${parts.join(", ")})` : ""}`;
+}
+
+function renderTranslations(root: HTMLElement, overview: Overview, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-translations" });
+	box.createEl("h4", { text: "Translations" });
+	box.createDiv({ cls: "bh-note", text: "A translation is a separate note. Your own chapter is never changed. Updates translate only the paragraphs that changed, and never overwrite a paragraph you edited without asking." });
+	for (const lang of overview.translations) {
+		box.createEl("h5", { text: `${lang.name} (${lang.language})` });
+		const go = box.createEl("button", { cls: "bh-button", text: lang.toTranslate > 0 ? `Translate or update ${lang.name} (${lang.toTranslate} paragraph${lang.toTranslate === 1 ? "" : "s"})` : `Check ${lang.name}` });
+		go.addEventListener("click", () => actions.translate(lang.language));
+		const list = box.createEl("ul");
+		for (const r of lang.rows) {
+			const li = list.createEl("li");
+			li.createSpan({ text: `${r.chapter.designation}: ${translationLine(r)}` });
+			for (const c of r.conflicts) {
+				const item = li.createDiv({ cls: "bh-callout" });
+				item.createDiv({ text: c.reason });
+				item.createDiv({ cls: "bh-note", text: `The source now: ${c.sourceNow.join(" ")}` });
+				if (c.target !== null) item.createDiv({ cls: "bh-note", text: `Your translation: ${c.target}` });
+				const row = item.createDiv({ cls: "bh-actions" });
+				if (c.kind === "edited-and-changed") row.createEl("button", { cls: "bh-button", text: "Keep mine", attr: { "aria-label": `Keep my translation of this paragraph in ${r.chapter.designation}` } }).addEventListener("click", () => actions.resolveConflict(r.chapter.id, lang.language, c.id, "mine"));
+				row.createEl("button", { cls: "bh-button", text: c.kind === "edited-and-changed" ? "Use a new translation" : "Translate it", attr: { "aria-label": `Translate this paragraph again in ${r.chapter.designation}${c.kind === "edited-and-changed" ? "; this replaces my text" : ""}` } }).addEventListener("click", () => actions.resolveConflict(r.chapter.id, lang.language, c.id, "machine"));
+			}
+		}
 	}
 }
 
@@ -381,6 +421,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	if (!overview) return;
 	renderSearch(root, overview, bookActions);
 	renderAsk(root, overview.ask, bookActions);
+	if (overview.translations.length > 0) renderTranslations(root, overview, bookActions);
 	if (overview.selected) renderSelected(root, overview.selected, bookActions);
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);

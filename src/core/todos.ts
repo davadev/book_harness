@@ -2,7 +2,7 @@ import type { Book } from "./books";
 import { findConflicts, findGaps, readingOrder, type Chapter } from "./chapters";
 import { meetsRequirement } from "./status";
 
-export type TodoKind = "manual" | "sync-conflict" | "chapter-unfinished" | "chapter-no-file" | "chapter-note-missing" | "chapter-gap" | "chapter-conflict";
+export type TodoKind = "manual" | "sync-conflict" | "chapter-unfinished" | "chapter-no-file" | "chapter-note-missing" | "chapter-gap" | "chapter-conflict" | "translation";
 
 export interface Todo {
 	/** Stable: the same situation always yields the same id, so lists dedupe and resolved items disappear on their own. */

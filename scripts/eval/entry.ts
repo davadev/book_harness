@@ -13,6 +13,7 @@ import { extractChapter } from "../../src/core/extraction";
 import { GuardedVault } from "../../src/core/guarded-vault";
 import { PROOFREAD_PROMPT, proofreadChapter } from "../../src/core/proofread";
 import { proseSegments } from "../../src/core/segmentation";
+import { askBook, gatherEvidence } from "../../src/core/agent/ask";
 import { BookSearch } from "../../src/core/search";
 import { SUMMARY_PROMPT, summarizeChapter } from "../../src/core/summary";
 import type { IndexStorePort } from "../../src/core/embeddings";
@@ -141,6 +142,33 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 		const expectedAll = Object.values(EXPECTED).flat();
 		const extra = entities.filter((e) => !expectedAll.some((n) => nameKey(n).includes(nameKey(e.name)) || nameKey(e.name).includes(nameKey(n))));
 		lines.push(`- Entities that are not on the expected list (judge by eye): ${extra.length}: ${extra.map((e) => `${e.name} (${e.type})`).join(", ")}`, `- Total entities created: ${entities.length}`, "");
+	}
+
+	if (STEPS.includes("ask")) {
+		const { vault, book, chapters } = await setupBook();
+		const search = new BookSearch();
+		const questions: Array<{ q: string; expect: string[] | null; note: string }> = [
+			{ q: "Who is the harbour master?", expect: ["ilse", "kovar"], note: "answerable" },
+			{ q: "How old was Tomas on the night the lamp went out?", expect: ["14", "fourteen"], note: "answerable, chapter 2" },
+			{ q: "What did the woman in the round room say to Nora?", expect: ["nell", "wondered how long"], note: "answerable, chapter 3" },
+			{ q: "What is the name of Nora's dog?", expect: null, note: "trap: not in the book, should not be answered" },
+			{ q: "What colour are Nora's eyes?", expect: ["grey", "green"], note: "the book contradicts itself (grey in chapter 1, green in chapter 3)" },
+		];
+		lines.push("### Ask the book (keyword retrieval, 8 passages)", "", "| Question | Time | Status | Quotes kept / dropped | Contains expected |", "|---|---|---|---|---|");
+		const answers: string[] = [];
+		for (const item of questions) {
+			const t0 = Date.now();
+			try {
+				const { evidence } = await gatherEvidence(vault, book, chapters, search, item.q, null);
+				const r = await askBook({ client, model, diagnostics: diag, now: () => new Date().toISOString(), sleep }, item.q, evidence, null);
+				const hit = item.expect === null ? (r.status === "not_in_excerpts" ? "correctly not answered" : "ANSWERED A TRAP QUESTION") : item.expect.some((x) => r.answer.toLowerCase().includes(x)) ? "yes" : "no";
+				lines.push(`| ${item.q} (${item.note}) | ${secs(t0)} s | ${r.status} | ${r.citations.length} / ${r.dropped} | ${hit} |`);
+				answers.push(`> **${item.q}** ${r.answer.replace(/\n/g, " ")}`);
+			} catch (e) {
+				lines.push(`| ${item.q} | ${secs(t0)} s | FAILED | | ${(e as Error).message} |`);
+			}
+		}
+		lines.push("", ...answers.flatMap((a) => [a, ""]));
 	}
 
 	lines.push(`Run log: ${diag.recent(1000).length} model calls, ${diag.recent(1000).filter((d) => d.repaired).length} needed a repair, ${diag.recent(1000).filter((d) => d.outcome === "failed").length} failed.`, "");

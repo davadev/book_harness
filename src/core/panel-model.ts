@@ -9,6 +9,7 @@ import type { CoverageView } from "./proofread";
 import type { Proposal } from "./proposals";
 import type { SummaryStatus } from "./summary";
 import type { ChapterStats } from "./task-state";
+import { translationTodos, type LanguageOverview } from "./translation/overview";
 import type { AskResult } from "./agent/ask";
 import type { BookStatistics } from "./stats/statistics";
 import type { TimelineView } from "./temporal/timeline";
@@ -59,6 +60,8 @@ export interface Overview {
 	statistics: BookStatistics | null;
 	/** Questions asked of the book in this session, newest first, and the one being answered now. */
 	ask: { history: AskResult[]; pending: string | null };
+	/** Translation state per target language of the book; empty when the book has none. */
+	translations: LanguageOverview[];
 	/** Jobs to show: running, interrupted, and recently finished ones that were not dismissed. */
 	jobs: JobRecord[];
 }
@@ -77,9 +80,9 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 const NO_SUMMARY: OverviewRow["summary"] = { status: "none", path: null };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null, search: SearchOutcome | null = null, meaning: Overview["meaning"] = { available: false, enabled: false, status: null }, contexts: ReadonlyMap<string, PassageContext> = new Map(), timeline: TimelineView | null = null, statistics: BookStatistics | null = null, ask: Overview["ask"] = { history: [], pending: null }): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null, search: SearchOutcome | null = null, meaning: Overview["meaning"] = { available: false, enabled: false, status: null }, contexts: ReadonlyMap<string, PassageContext> = new Map(), timeline: TimelineView | null = null, statistics: BookStatistics | null = null, ask: Overview["ask"] = { history: [], pending: null }, translations: readonly LanguageOverview[] = []): Overview {
 	const ordered = readingOrder(chapters);
-	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies)];
+	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies), ...translationTodos(book, translations)];
 	return {
 		rows: ordered.map((chapter, i) => ({
 			chapter,
@@ -97,6 +100,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 		timeline,
 		statistics,
 		ask,
+		translations: [...translations],
 		search,
 		selected,
 		entities: [...entities].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name)),

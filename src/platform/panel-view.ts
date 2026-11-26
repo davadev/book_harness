@@ -35,6 +35,8 @@ import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { askBook, chronologyText, gatherEvidence, type AskResult, type Citation } from "../core/agent/ask";
+import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
+import { loadGlossary, syncTranslation, type Resolution } from "../core/translation/translate";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
@@ -54,6 +56,8 @@ export interface PanelHost {
 export function announceApplied(result: { applied: number; conflicts: string[] }): void {
 	new Notice(`Applied ${result.applied} change${result.applied === 1 ? "" : "s"}.${result.conflicts.length ? ` ${result.conflicts.length} could not be placed because the text changed; they were left for you.` : ""}`, 8000);
 }
+
+const sleep = (ms: number): Promise<void> => new Promise<void>((r) => window.setTimeout(r, ms));
 
 export const PANEL_VIEW_TYPE = "book-harness-panel";
 
@@ -154,9 +158,10 @@ export class BookHarnessView extends ItemView {
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
+			const translations = book ? await loadTranslationOverview(vault, book, shown) : [];
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -191,7 +196,6 @@ export class BookHarnessView extends ItemView {
 		const { prompt } = await loadPrompt(vault, book);
 		const client = new OllamaClient(this.host.network, base);
 		const now = () => new Date().toISOString();
-		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "chapter.summary", "summarize-chapters", chapters, async (chapter, signal) => {
 			const r = await summarizeChapter(vault, book, chapter, { client, model, prompt, signal, diagnostics: this.host.diagnostics, now, sleep });
 			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
@@ -253,10 +257,22 @@ export class BookHarnessView extends ItemView {
 		view.editor.scrollIntoView({ from, to }, true);
 	}
 
+	private async startTranslation(vault: GuardedVault, book: Book, targets: Chapter[], language: string, base: string, model: string, resolutions: Readonly<Record<string, Resolution>> = {}): Promise<void> {
+		const client = new OllamaClient(this.host.network, base);
+		const now = () => new Date().toISOString();
+		const glossary = await loadGlossary(vault, book, language);
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "translation.sync", `translate-${language}`, targets, async (chapter, signal) => {
+			const r = await syncTranslation(vault, book, chapter, language, { model: { client, model, signal, diagnostics: this.host.diagnostics, now, sleep }, random: platformRandom, glossary }, resolutions);
+			const parts = [`${r.translated} translated`, `${r.kept} kept`, `${r.dropped} removed`, `${r.conflicts} waiting for your decision`, ...r.failed, ...r.issues];
+			return { state: "done", message: parts.join("; ") };
+		});
+		new Notice(`Translation: ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters done.`, 8000);
+		this.markDirty();
+	}
+
 	private async startExtraction(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
 		const client = new OllamaClient(this.host.network, base);
 		const now = () => new Date().toISOString();
-		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "entities.extract", "find-entities", chapters, async (chapter, signal) => {
 			const r = await extractChapter(vault, book, chapter, { client, model, signal, diagnostics: this.host.diagnostics, now, sleep, random: platformRandom });
 			if (r.kind === "discarded-stale") return { state: "discarded", message: `${chapter.designation} changed while it was being read; nothing was recorded.` };
@@ -271,7 +287,6 @@ export class BookHarnessView extends ItemView {
 	private async startProofreading(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
 		const client = new OllamaClient(this.host.network, base);
 		const now = () => new Date().toISOString();
-		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 		const prompt = defaultProofreadPrompt();
 		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "proofread", "proofread-chapters", chapters, async (chapter, signal) => {
 			const r = await proofreadChapter(vault, book, chapter, { client, model, prompt, signal, diagnostics: this.host.diagnostics, now, sleep, random: platformRandom });
@@ -475,7 +490,6 @@ export class BookHarnessView extends ItemView {
 						const t = await loadTimeline(vault, book);
 						const chronology = t.events.length > 0 ? chronologyText(buildTimeline(t.events, t.constraints, chapters)) : null;
 						const now = () => new Date().toISOString();
-						const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 						const result = await askBook({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, q, evidence, chronology);
 						this.asked.set(book.id, [result, ...(this.asked.get(book.id) ?? [])].slice(0, 10));
 					})().catch(fail).finally(() => {
@@ -490,6 +504,34 @@ export class BookHarnessView extends ItemView {
 				}).open();
 			},
 			openCitation: (c: Citation) => void this.openPassage(c.result),
+			translate: (language) => {
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device, targets } = ready;
+				void loadTranslationOverview(vault, book, targets).then((all) => {
+					const lang = all.find((l) => l.language === language) as LanguageOverview;
+					const rows = lang.rows;
+					const needModel = rows.filter((r) => r.toTranslate > 0).map((r) => r.chapter);
+					// stale chapters with nothing to translate still need their record brought up to date (removed paragraphs, moves, decisions): no model is involved
+					const bookkeeping = rows.filter((r) => r.toTranslate === 0 && r.status.state === "stale").map((r) => r.chapter);
+					if (needModel.length === 0 && bookkeeping.length === 0) return void new Notice(`Nothing needs translating into ${language} right now.`, 8000);
+					const quiet = async () => {
+						for (const c of bookkeeping) await syncTranslation(vault, book, c, language, { model: null, random: platformRandom, glossary: [] });
+					};
+					if (needModel.length === 0) return run(quiet());
+					new ConfirmModal(this.app, `Translate into ${lang.name}`, [`${lang.toTranslate} paragraph(s) of ${needModel.length} chapter(s) will be sent to ${base}, one at a time with the paragraphs next to it, using the model "${device.generationModel}".`, "Your chapters are not changed. Translations are saved as separate notes. A paragraph whose translation you edited is never replaced without asking you.", "You can cancel while it runs."], "Translate", () => void quiet().then(() => this.startTranslation(vault, book, needModel, language, base, device.generationModel)).catch(fail)).open();
+				}, fail);
+			},
+			resolveConflict: (chapterId, language, conflictId, choice) => {
+				const chapter = chapters.find((c) => c.id === chapterId) as Chapter;
+				if (choice === "mine") {
+					// recording a decision never calls the model
+					return run(syncTranslation(vault, book, chapter, language, { model: null, random: platformRandom, glossary: [] }, { [conflictId]: "mine" }));
+				}
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				new ConfirmModal(this.app, "Use a new translation", ["This replaces your own translation of this paragraph with a new one made by the model. The paragraph and its neighbours are sent to " + ready.base + ".", "Your chapter is not changed."], "Replace mine", () => void this.startTranslation(vault, book, [chapter], language, ready.base, ready.device.generationModel, { [conflictId]: "machine" }).catch(fail)).open();
+			},
 			toggleStatistics: () => {
 				if (this.statistics?.bookId === book.id) {
 					this.statistics = null;

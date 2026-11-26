@@ -11,8 +11,8 @@ const FENCE = /```bh-records\n([\s\S]*?)\n```/;
 const PERSIST_EVERY = 5;
 
 export type JobState = "running" | "completed" | "canceled" | "interrupted" | "dismissed";
-export type JobKind = "stats.words" | "chapter.summary" | "proofread" | "entities.extract" | "embeddings.build";
-const JOB_KINDS: readonly JobKind[] = ["stats.words", "chapter.summary", "proofread", "entities.extract", "embeddings.build"];
+export type JobKind = "stats.words" | "chapter.summary" | "proofread" | "entities.extract" | "embeddings.build" | "translation.sync";
+const JOB_KINDS: readonly JobKind[] = ["stats.words", "chapter.summary", "proofread", "entities.extract", "embeddings.build", "translation.sync"];
 export type ItemState = "pending" | "done" | "discarded" | "failed" | "canceled";
 
 export interface JobItem {
