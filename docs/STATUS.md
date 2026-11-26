@@ -2,6 +2,24 @@
 
 Last updated: 2026-11-26 (Phase 0 complete; no code written). Update this file at the end of every session/slice.
 
+## Resume here (written before a context compaction)
+
+**State:** Phases 0–5 are built in code; Phase 6 (summaries, entities, extraction, highlights) and Phase 7 (keyword + meaning search, graph) are largely built; every slice has 100 % coverage and the full gate set is green. **Nothing has ever run in real Obsidian (desktop or iPhone) or against a real Ollama.** All behaviour is verified by simulation (fake vault, fake app, scripted model, happy-dom, a real CodeMirror `EditorView` under happy-dom). No beta has been cut: the author deferred it at every checkpoint. Android is unverifiable by agreement (build to its constraints, label as untested).
+
+**Biggest risks (see `docs/RISKS.md`):** the editor review/highlight extensions and panel layout on iOS (spike S2); `requestUrl` to a remote Ollama from a phone (S5); the EPUB/PDF stack on mobile (S1: direction fflate + pdfmake, nothing implemented); WebDAV sync conflict behaviour of many small notes (S8); language-quality of extraction/proofreading for English, German, Czech/Slovak (never evaluated with a real model).
+
+**What is left, in plan order** (`docs/IMPLEMENTATION-PLAN.md`):
+- Phase 7: search filters (entity, chapter) and performance measurement on a long book.
+- Phase 6 gaps: per-type entity attributes (appearance, geography, ...), author-established facts and fact kinds (canon / claim / belief / reader revelation), relationships, Reading-mode highlights (no post-processor yet), model-assisted identity comparison.
+- Phase 8 temporal engine (nothing built): narrative timeline, event extraction, constraint solver (`docs/TEMPORAL-ENGINE.md`), timeline rendering (reuse plan in `docs/DISCOVERY.md` §4, open decision O-5).
+- Phase 9: character depth analysis, contradiction investigation, statistics (word counts exist; frequency/adjective analysis with the labelled heuristic / model-classified modes for de/cs/sk), contextual synonyms.
+- Phase 10 translation; Phase 11 read-only chat agent (tools: search, graph context, entities, chapter summaries; bounded loop; citations; saved chats); Phase 12 publishing (S1 first); Phase 13 integration, accessibility, recovery tooling, user docs, example nonlinear book.
+- Cross-cutting: first BRAT prerelease and a **platform test log** (`docs/COMPATIBILITY.md` §5, still empty); spikes S2, S5, S6 (device), S7, S8; real-model evaluation script (opt-in, records model versions); diagnostics view; prompt-override editor UI; snapshot store (O-10) when translation needs it.
+
+**Open decisions needing the author** (`docs/DECISIONS.md`): O-5 timeline reuse mechanism, O-8 PDF cross-platform fidelity, O-9 calendar scope, O-10 snapshot retention, O-12 Reading-mode highlights on mobile. Resolved so far: O-1 (decision provider out of MVP), O-3, O-4, O-6 (English, German, Czech/Slovak), O-7, O-11 (WebDAV/Nextcloud sync), O-13, Android policy.
+
+**Working agreements with the author:** ask with the AskUserQuestion tool; public repo, nothing private; master prompt stays local (git-ignored); never present mocked output as model quality; be explicit about what is untested.
+
 ## 1. Where we are
 
 | Phase | Name | Status | Notes |

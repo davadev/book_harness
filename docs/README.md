@@ -19,3 +19,4 @@ Start with `STATUS.md`.
 | `ACCEPTANCE.md` | Acceptance scenarios → tests |
 | `STATUS.md` | Implementation ledger, blockers, change log |
 | `SPIKES.md` | Feasibility spike results (desktop-side), directions and what still needs devices |
+| `DEVELOPMENT.md` | How the code is organized, checked and extended; invariants and where they are enforced; gotchas |

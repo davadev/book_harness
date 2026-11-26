@@ -4,7 +4,7 @@ Obsidian plugin (desktop + mobile) to write, understand, translate and publish b
 
 ## Start of every session
 
-1. Read `docs/STATUS.md`, then open items in `docs/DECISIONS.md` for your work. Work one slice of `docs/IMPLEMENTATION-PLAN.md`.
+1. Read `docs/STATUS.md` ("Resume here"), then open items in `docs/DECISIONS.md` for your work. Work one slice of `docs/IMPLEMENTATION-PLAN.md`.
 2. Before ending: update `STATUS.md`, `DECISIONS.md`, `ACCEPTANCE.md`. Docs must survive context compaction.
 3. Repo is **public**: no private books, no secrets, no hostnames, no private-repo (playbook) text.
 
@@ -21,6 +21,7 @@ Always `npm run build` before claiming done. Tests stub `obsidian` via `src/test
 
 | Trigger | Skill |
 |---|---|
+| Starting, resuming or finishing any slice of the implementation plan | `build-slice` |
 | Opening/merging a feature or fix PR; adding setting, command or UI; "is it done?" | `feature-done` |
 | About to edit `src/`, `styles.css`, settings or anything touching user data | `plugin-design-rules` |
 | Change merged to `main`; "release", "tag", "ship a beta" | `release-beta` |
@@ -43,7 +44,9 @@ Always `npm run build` before claiming done. Tests stub `obsidian` via `src/test
 - Work on a branch, PR, CI green, merge commit. Coverage 100 %, lint 0/0, never silence a rule; delete unreachable code.
 - Every release is a prerelease first (`X.Y.Z-beta.N`); stable only on explicit instruction; tag-driven (`docs/releasing.md`).
 - No dependency younger than 14 days; Actions pinned to SHAs; ES2018 API floor.
-- Ask the author (AskUserQuestion) for consequential trade-offs; do not silently reduce scope.
+- Ask the author with the **AskUserQuestion tool** (plain-text questions get missed) for trade-offs and at checkpoints; never silently reduce scope.
+- Detailed how-to, invariants-to-enforcement map, test patterns and gotchas: `docs/DEVELOPMENT.md`.
+- Say plainly what is untested: nothing has run in real Obsidian or against a real model yet.
 
 ## Reference
 
