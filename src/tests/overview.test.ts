@@ -4,6 +4,7 @@ import type { Book } from "../core/books";
 import type { Chapter } from "../core/chapters";
 import { buildOverview, type PanelContext } from "../core/panel-model";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
+import type { ChapterStats } from "../core/task-state";
 import { installObsidianDom } from "./__mocks__/obsidianDom";
 
 const book: Book = { id: "bk1", folder: "A", title: "My Book", primaryLanguage: "en", targetLanguages: ["de", "cs"], completion: { chapterStatus: "finalized" } };
@@ -11,7 +12,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -108,6 +109,18 @@ describe("overview rendering", () => {
 		(lis[2]!.querySelector(".bh-link") as HTMLButtonElement).click();
 		(lis[3]!.querySelector(".bh-link") as HTMLButtonElement).click();
 		expect(a.openNote).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows word counts with their freshness and offers an explicit update", () => {
+		const a = actions();
+		const chapters = [ch("a", "Chapter 1", 1, "A/a.md"), ch("b", "Chapter 2", 2, "A/b.md"), ch("c", "Chapter 3", 3, "A/c.md"), ch("d", "Chapter 4", 4, "A/d.md"), ch("e", "Chapter 5", 5, "A/e.md"), ch("f", "Chapter 6", 6, null)];
+		const stats = new Map<string, ChapterStats>([["a", { words: 12345, status: "current" }], ["b", { words: 7, status: "stale" }], ["c", { words: null, status: "not_processed" }], ["d", { words: 3, status: "failed" }], ["e", { words: 4, status: "canceled" }]]);
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		renderOverview(root, ctx, buildOverview(book, chapters, null, () => true, stats), a);
+		const notes = Array.from(root.querySelectorAll(".bh-chapter .bh-note")).map((n) => n.textContent);
+		expect(notes).toEqual(["12,345 words", "7 words (out of date: the text changed since it was counted)", "Not counted yet", "3 words (last count failed)", "4 words (last count was canceled)"]);
+		click("Update word counts");
+		expect(a.updateStats).toHaveBeenCalled();
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

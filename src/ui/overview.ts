@@ -1,6 +1,7 @@
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Overview, PanelContext } from "../core/panel-model";
+import type { ChapterStats } from "../core/task-state";
 
 /** Everything the overview can ask the platform to do. Each is an explicit author action. */
 export interface BookActions {
@@ -11,6 +12,7 @@ export interface BookActions {
 	unbind(chapterId: string): void;
 	promoteActive(path: string): void;
 	planChapter(): void;
+	updateStats(): void;
 }
 
 export interface OverviewActions {
@@ -26,6 +28,12 @@ const STATUS_LABEL: Record<ChapterStatus, string> = {
 	revising: "Revising",
 	finalized: "Finalized",
 };
+
+function statsLine(stats: ChapterStats): string {
+	const words = stats.words === null ? "Not counted yet" : `${stats.words.toLocaleString("en-US")} words`;
+	const state = { current: "", stale: " (out of date: the text changed since it was counted)", not_processed: "", failed: " (last count failed)", canceled: " (last count was canceled)" }[stats.status];
+	return `${words}${state}`;
+}
 
 /**
  * Draws the overview. Never rebuilds an element that holds focus on its own: the caller redraws only when data changed.
@@ -61,6 +69,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	const bar = root.createDiv({ cls: "bh-actions" });
 	if (ctx.role === "manuscript") bar.createEl("button", { cls: "bh-button mod-cta", text: "Make this note a chapter" }).addEventListener("click", () => bookActions.promoteActive(ctx.activePath));
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
+	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
 	if (overview.todos.length > 0) {
@@ -90,6 +99,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 		if (row.isActive) head.createSpan({ cls: "bh-badge", text: "Open now" });
 		if (row.chapter.notePath === null) head.createSpan({ cls: "bh-badge", text: "No file yet" });
 		if (row.missingNote) head.createSpan({ cls: "bh-badge", text: "Note not found" });
+		if (row.chapter.notePath !== null) li.createDiv({ cls: "bh-note", text: statsLine(row.stats) });
 		const controls = li.createDiv({ cls: "bh-chapter-controls" });
 		const select = controls.createEl("select", { cls: "bh-select dropdown", attr: { "aria-label": `Status of ${row.chapter.designation}` } });
 		for (const s of CHAPTER_STATUSES) {

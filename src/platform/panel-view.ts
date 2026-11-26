@@ -3,6 +3,7 @@ import { listBooks, type Book } from "../core/books";
 import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
 import type { ChapterStatus } from "../core/status";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
+import { chapterStats, updateAllStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
 import { PromptModal } from "./prompt-modal";
@@ -76,7 +77,10 @@ export class BookHarnessView extends ItemView {
 			const problems = [...bookProblems, ...loaded.flatMap((r) => r.problems)].map((p) => `${p.path}: ${p.reason}`);
 			const ctx = resolveContext(books, active, chapters);
 			const book = ctx.kind === "book" ? ctx.book : null;
-			const overview = book ? buildOverview(book, chapters.filter((c) => c.bookId === book.id), active, (p) => vault.exists(p)) : null;
+			const shown = book ? chapters.filter((c) => c.bookId === book.id) : [];
+			const stats = new Map<string, ChapterStats>();
+			for (const c of shown) stats.set(c.id, await chapterStats(vault, book as Book, c));
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -110,6 +114,11 @@ export class BookHarnessView extends ItemView {
 			rename: (id, current) => new PromptModal(this.app, "Rename chapter", "Designation", current, (v) => run(setDesignation(vault, book, chapters, find(id), v))).open(),
 			unbind: (id) => run(bindNote(vault, book, chapters, find(id), null)),
 			promoteActive: (path) => new PromptModal(this.app, "Make this note a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v, notePath: path }, platformRandom))).open(),
+			updateStats: () =>
+				void updateAllStats(vault, book, chapters, () => new Date().toISOString()).then((r) => {
+					new Notice(`Counted ${r.committed} chapter${r.committed === 1 ? "" : "s"}.${r.discarded.length ? ` Not stored: ${r.discarded.join(" ")}` : ""}${r.failed.length ? ` Failed: ${r.failed.join(" ")}` : ""}`, 8000);
+					this.markDirty();
+				}),
 			planChapter: () => new PromptModal(this.app, "Plan a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v }, platformRandom))).open(),
 		};
 	}

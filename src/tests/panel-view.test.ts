@@ -240,6 +240,44 @@ describe("BookHarnessView edge cases", () => {
 		expect(Notice.instances.at(-1)?.message).toMatch(/share an order value/);
 	});
 
+	it("counts words on request and shows when text has changed since", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
+		button(view, "Update word counts").click();
+		await vi.waitFor(() => expect(text(view)).toContain("1 words"));
+		expect(Notice.instances.at(-1)?.message).toBe("Counted 2 chapters.");
+		store.set("Book/one.md", "One two three");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
+		store.set("Book/two.md", "Changed");
+		button(view, "Update word counts").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Counted 2 chapters."));
+	});
+
+	it("uses the singular for one counted chapter", async () => {
+		const { fake, view, store } = await setup();
+		store.delete("Book/two.md");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
+		button(view, "Update word counts").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toMatch(/^Counted 1 chapter\./));
+	});
+
+	it("tells the author when a count could not be stored or failed", async () => {
+		const { fake, view } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
+		const read = fake.appAny.vault.read;
+		let n = 0;
+		fake.appAny.vault.read = (f: { path: string }) => (f.path === "Book/one.md" && ++n === 2 ? Promise.resolve("changed meanwhile") : f.path === "Book/two.md" ? Promise.reject(new Error("io")) : read(f));
+		button(view, "Update word counts").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toMatch(/Counted 0 chapters\. Not stored: Chapter 1 changed.* Failed: Chapter 2: io/));
+	});
+
 	it("reports non-Error failures from an action", async () => {
 		const { fake, view } = await setup();
 		fake.state.active = "Book/one.md";

@@ -1,5 +1,6 @@
 import { bookForPath, type Book } from "./books";
 import { readingOrder, type Chapter } from "./chapters";
+import type { ChapterStats } from "./task-state";
 import { deriveTodos, type Todo } from "./todos";
 
 /** What the side panel should show for the note that is open. Pure so every case is table-testable. */
@@ -15,6 +16,7 @@ export interface OverviewRow {
 	missingNote: boolean;
 	isFirst: boolean;
 	isLast: boolean;
+	stats: ChapterStats;
 }
 
 export interface Overview {
@@ -34,7 +36,9 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 	return { kind: "book", book, activePath, role, chapterId: chapter?.id ?? null };
 }
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean): Overview {
+const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
+
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map()): Overview {
 	const ordered = readingOrder(chapters);
 	const todos = deriveTodos(book, chapters, exists);
 	return {
@@ -44,6 +48,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 			missingNote: chapter.notePath !== null && !exists(chapter.notePath),
 			isFirst: i === 0,
 			isLast: i === ordered.length - 1,
+			stats: stats.get(chapter.id) ?? NO_STATS,
 		})),
 		todos: [...todos.filter((t) => t.severity === "required"), ...todos.filter((t) => t.severity === "info")],
 	};
