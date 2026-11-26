@@ -1538,7 +1538,8 @@ describe("BookHarnessView consistency", () => {
 	const answer = (body: string | undefined) => {
 		const user = (JSON.parse(body ?? "{}") as { messages: Array<{ content: string }> }).messages[1]!.content;
 		const id = (text: string) => /<excerpt id="(P\d)"[^>]*>\n[^<]*?text\b/.exec(user)?.[1] ?? (user.indexOf(text) >= 0 ? new RegExp(`<excerpt id="(P\\d)"[^>]*>\\n[^<]*${text}`).exec(user)?.[1] : undefined);
-		return { findings: [{ topic: "Eye colour", first: { id: id("grey") ?? "P1", quote: "had grey eyes" }, second: { id: id("green") ?? "P2", quote: "had green eyes" }, explanation: "Grey, then green." }] };
+		if (user.includes("<statement")) return { conflict: true, explanation: "Grey, then green." };
+		return { facts: [{ attribute: "eye colour", value: "grey", id: id("grey") ?? "P1", quote: "had grey eyes" }, { attribute: "eye colour", value: "green", id: id("green") ?? "P2", quote: "had green eyes" }] };
 	};
 
 	it("checks one entity after confirmation, shows both places, and remembers the decision", async () => {

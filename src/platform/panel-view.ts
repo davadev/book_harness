@@ -39,7 +39,7 @@ import { blocksExport, planExport, type ExportChapter } from "../core/publishing
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { loadAnswers, retireAnswer, saveAnswer, type SavedAnswer } from "../core/agent/chats";
-import { checkConsistency, decideFinding, loadFindings, needsSecondLook, recordFindings, type Place } from "../core/agent/consistency";
+import { CONSISTENCY_PASSAGES, checkConsistency, decideFinding, loadFindings, needsSecondLook, recordFindings, type Place } from "../core/agent/consistency";
 import { classifyAdjectives } from "../core/stats/adjective-model";
 import { contextAround } from "../core/synonyms";
 import { askBook, chronologyText, gatherEvidence, type Citation } from "../core/agent/ask";
@@ -613,14 +613,14 @@ export class BookHarnessView extends ItemView {
 				run(
 					entities().then((all) => {
 						const entity = all.find((e) => e.id === entityId) as Entity;
-						new ConfirmModal(this.app, `Check consistency: ${entity.name}`, [`Up to 10 short passages that mention ${entity.name} will be sent to ${base} using the model "${device.generationModel}".`, "The model only points at places that may contradict each other; both quotes are checked against your text, and you decide what each one is. Your chapters are not changed."], "Check", () => {
+						new ConfirmModal(this.app, `Check consistency: ${entity.name}`, [`Up to ${CONSISTENCY_PASSAGES} short passages that mention ${entity.name} will be sent to ${base} using the model "${device.generationModel}".`, "The model lists the facts those passages state; the software pairs facts that describe the same thing differently, and the model judges each pair. Both quotes are checked against your text, and you decide what each one is. Your chapters are not changed."], "Check", () => {
 							this.checking = true;
 							void (async () => {
-								const { evidence } = await gatherEvidence(vault, book, chapters, this.host.search, [entity.name, ...entity.aliases].join(" "), null, 10);
+								const { evidence } = await gatherEvidence(vault, book, chapters, this.host.search, [entity.name, ...entity.aliases].join(" "), null, CONSISTENCY_PASSAGES);
 								const now = () => new Date().toISOString();
 								const report = await checkConsistency({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, entity, evidence);
 								await recordFindings(vault, book, entity, report.found);
-								new Notice(`${entity.name}: ${report.found.length} possible contradiction(s) in ${report.excerpts} passages; ${report.dropped} left out because the quote was not in the text.`, 8000);
+								new Notice(`${entity.name}: ${report.found.length} possible contradiction(s) in ${report.excerpts} passages (${report.facts} facts, ${report.compared} pairs compared); ${report.dropped} left out because the quote was not in the text.`, 8000);
 							})().catch(fail).finally(() => {
 								this.checking = false;
 								this.markDirty();

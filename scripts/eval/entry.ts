@@ -13,7 +13,7 @@ import { extractChapter } from "../../src/core/extraction";
 import { GuardedVault } from "../../src/core/guarded-vault";
 import { PROOFREAD_PROMPT, proofreadChapter } from "../../src/core/proofread";
 import { proseSegments } from "../../src/core/segmentation";
-import { checkConsistency } from "../../src/core/agent/consistency";
+import { CONSISTENCY_PASSAGES, checkConsistency } from "../../src/core/agent/consistency";
 import { createEntity } from "../../src/core/entities";
 import { acceptCandidate, findEvents, loadCandidates } from "../../src/core/temporal/events";
 import { buildTimeline, loadTimeline } from "../../src/core/temporal/timeline";
@@ -336,15 +336,15 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 			{ name: "compass", aliases: ["Meridian Key"], planted: "brass in chapter 1, silver in chapter 2" },
 			{ name: "Ilse Kovar", aliases: ["Ilse"], planted: "none planted" },
 		];
-		lines.push("### Consistency check (retrieval of up to 10 passages per subject)", "", "| Subject | Planted | Time | Passages | Findings | Left out |", "|---|---|---|---|---|---|");
+		lines.push(`### Consistency check (up to ${CONSISTENCY_PASSAGES} passages per subject)`, "", "| Subject | Planted | Time | Passages | Findings | Left out |", "|---|---|---|---|---|---|");
 		const detail: string[] = [];
 		for (const sub of subjects) {
 			const entity = await createEntity(vault, book, [], { type: "character", name: sub.name, aliases: sub.aliases }, rnd);
 			const t0 = Date.now();
 			try {
-				const { evidence } = await gatherEvidence(vault, book, chapters, search, [sub.name, ...sub.aliases].join(" "), null, 10);
+				const { evidence } = await gatherEvidence(vault, book, chapters, search, [sub.name, ...sub.aliases].join(" "), null, CONSISTENCY_PASSAGES);
 				const r = await checkConsistency({ client, model, diagnostics: diag, now: () => new Date().toISOString(), sleep }, entity, evidence);
-				lines.push(`| ${sub.name} | ${sub.planted} | ${secs(t0)} s | ${r.excerpts} | ${r.found.length} | ${r.dropped} |`);
+				lines.push(`| ${sub.name} | ${sub.planted} | ${secs(t0)} s | ${r.excerpts} passages, ${r.facts} facts, ${r.compared} pairs | ${r.found.length} | ${r.dropped} |`);
 				for (const f of r.found) detail.push(`- **${sub.name}: ${f.topic}** — ${f.first.chapter} “${f.first.quote.slice(0, 70)}” vs ${f.second.chapter} “${f.second.quote.slice(0, 70)}”. ${f.explanation}`);
 			} catch (e) {
 				lines.push(`| ${sub.name} | ${sub.planted} | ${secs(t0)} s | | FAILED | ${(e as Error).message} |`);
@@ -397,7 +397,7 @@ async function evalSearch(embed: string, digests: Map<string, string>): Promise<
 	const t0 = Date.now();
 	let passages = 0;
 	for (const c of chapters) passages += await search.buildChapterVectors(vault, book, chapters, c, { client, model: embed, store });
-	lines.push(`Built ${passages} passage vectors in ${secs(t0)} s.`, "", "| Query | Expected | Keyword | Hybrid |", "|---|---|---|---|");
+	lines.push(`Built ${passages} passage vectors in ${secs(t0)} s.`, "", "| Query | Expected | Keyword | Meaning only | Hybrid |", "|---|---|---|---|---|");
 	const queries: Array<[string, string]> = CONFIG?.search ?? [
 		["who vanished at sea three years ago", "Chapter 1"],
 		["a door opened from the other side under the harbour", "Chapter 2"],
@@ -408,15 +408,20 @@ async function evalSearch(embed: string, digests: Map<string, string>): Promise<
 	];
 	let kw = 0;
 	let hy = 0;
+	let me = 0;
 	for (const [q, want] of queries) {
 		const a = await search.search(vault, book, chapters, q, 3);
 		const b = await search.search(vault, book, chapters, q, 3, { client, model: embed, store });
 		const hit = (o: typeof a) => (o.results[0]?.chapter === want ? "hit@1" : o.results.some((r) => r.chapter === want) ? "hit@3" : "miss");
 		if (hit(a) === "hit@1") kw++;
 		if (hit(b) === "hit@1") hy++;
-		lines.push(`| ${q} | ${want} | ${hit(a)} | ${hit(b)} |`);
+		const wide = await search.search(vault, book, chapters, q, 40, { client, model: embed, store });
+		const byMeaning = wide.results.filter((r) => r.channels.meaning !== null).sort((x, y) => (x.channels.meaning as number) - (y.channels.meaning as number));
+		const mHit = byMeaning[0]?.chapter === want ? "hit@1" : byMeaning.slice(0, 3).some((r) => r.chapter === want) ? "hit@3" : "miss";
+		if (mHit === "hit@1") me++;
+		lines.push(`| ${q} | ${want} | ${hit(a)} | ${mHit} | ${hit(b)} |`);
 	}
-	lines.push("", `Top-1 correct: keyword ${kw} of ${queries.length}, hybrid ${hy} of ${queries.length}.`, "");
+	lines.push("", `Top-1 correct: keyword ${kw} of ${queries.length}, meaning only ${me} of ${queries.length}, hybrid ${hy} of ${queries.length}.`, "");
 	return lines.join("\n");
 }
 
