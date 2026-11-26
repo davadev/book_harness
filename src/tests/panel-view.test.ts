@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBook } from "../core/books";
 import { addChapter } from "../core/chapters";
+import { createProposal } from "../core/proposals";
 import { GuardedVault } from "../core/guarded-vault";
 import { BookSearch } from "../core/search";
 import { DiagnosticsLog } from "../core/ai/diagnostics";
@@ -1126,5 +1127,82 @@ describe("BookHarnessView timeline", () => {
 		step("Next", "date");
 		step("Add", 0, "soon");
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("is not a date"));
+	});
+});
+
+describe("BookHarnessView export", () => {
+	function withAdapter(fake: Awaited<ReturnType<typeof setup>>["fake"]) {
+		const written = new Map<string, ArrayBuffer>();
+		const dirs = new Set<string>();
+		fake.appAny.vault.adapter = { exists: (p: string) => Promise.resolve(dirs.has(p)), mkdir: (p: string) => (dirs.add(p), Promise.resolve()), writeBinary: (p: string, d: ArrayBuffer) => (written.set(p, d), Promise.resolve()) };
+		return written;
+	}
+	const confirm = (label: string) => Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label).at(-1) as HTMLButtonElement;
+
+	it("explains what is wrong, offers a draft with a different name, and saves what exists", async () => {
+		const { fake, view } = await setup();
+		const written = withAdapter(fake);
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export as EPUB"));
+		button(view, "Export as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("This book is not ready to export"));
+		expect(document.body.textContent).toContain("The author is not set");
+		expect(document.body.textContent).toContain("Chapter 1 is drafting; this book requires finalized");
+		confirm("Export as draft").click();
+		await vi.waitFor(() => expect(written.size).toBe(1));
+		const [name] = [...written.keys()];
+		expect(name).toMatch(/^Book\/exports\/Book-draft-\d{4}-\d\d-\d\d\.epub$/);
+		expect(Notice.instances.at(-1)?.message).toContain("draft");
+	});
+
+	it("lists a planned chapter, a missing note and a pending proposal, and counts one chapter in the singular", async () => {
+		const { fake, view, vault, book, one, two, store } = await setup();
+		withAdapter(fake);
+		store.delete("Book/two.md");
+		await addChapter(vault, book, [one, two], { designation: "Epilogue" }, counterRandom());
+		await createProposal(vault, book, one, "One", { action: "proofread" }, [{ from: 0, to: 3, replacement: "Uno" }], counterRandom(), "2026-11-26T00:00:00Z");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export as EPUB"));
+		button(view, "Export as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("This book is not ready to export"));
+		const shown = document.body.textContent as string;
+		expect(shown).toContain("1 chapter will be in the book; 2 will be left out");
+		expect(shown).toContain("Epilogue: planned, but no note is bound to it yet.");
+		expect(shown).toContain("Chapter 2: its note was not found.");
+		expect(shown).toContain("Note: Chapter 1 has proposed changes still waiting");
+		confirm("Export as draft").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("left out: Chapter 2, Epilogue"));
+	});
+
+	it("exports a ready book without a draft mark", async () => {
+		const { fake, view, store, book } = await setup();
+		const written = withAdapter(fake);
+		const bookPath = [...store.keys()].find((p) => p.endsWith("/book.md")) as string;
+		store.set(bookPath, (store.get(bookPath) as string).replace("completion_chapter_status: finalized", "completion_chapter_status: drafting\nauthor: A. Writer"));
+		expect(book.title).toBe("Book");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export as EPUB"));
+		button(view, "Export as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Export as EPUB"));
+		expect(document.body.textContent).not.toContain("not ready");
+		confirm("Export").click();
+		await vi.waitFor(() => expect(written.size).toBe(1));
+		expect([...written.keys()][0]).not.toContain("draft");
+	});
+
+	it("reports a failure to save as a notice", async () => {
+		const { fake, view } = await setup();
+		withAdapter(fake);
+		(fake.appAny.vault.adapter as { writeBinary: unknown }).writeBinary = () => Promise.reject(new Error("disk full"));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export as EPUB"));
+		button(view, "Export as EPUB").click();
+		await vi.waitFor(() => expect(confirm("Export as draft")).toBeDefined());
+		confirm("Export as draft").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("disk full"));
 	});
 });

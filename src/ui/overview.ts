@@ -40,6 +40,7 @@ export interface BookActions {
 	archiveEntity(id: string): void;
 	addTodo(): void;
 	addEvent(): void;
+	exportEpub(): void;
 	addTimeRelation(): void;
 	removeStatement(id: string): void;
 	removeEvent(id: string): void;
@@ -287,6 +288,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
 	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
+	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub());
 	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
 	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());
 	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());

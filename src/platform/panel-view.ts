@@ -30,6 +30,9 @@ import { createGuardedVault } from "./guarded-vault";
 import type { GuardedVault } from "../core/guarded-vault";
 import type { StoredConstraint, TimelineEvent } from "../core/temporal/timeline";
 import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimeline, loadTimeline, parseCivil, retireConstraint, retireEvent } from "../core/temporal/timeline";
+import { buildEpub } from "../core/publishing/epub";
+import { blocksExport, planExport } from "../core/publishing/validate";
+import { exportFileName, writeExport } from "./export-writer";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
@@ -430,6 +433,26 @@ export class BookHarnessView extends ItemView {
 					}),
 				),
 			addTodo: () => new PromptModal(this.app, "Add a to-do", "To do", "", (v) => run(addManualTodo(vault, book, v))).open(),
+			exportEpub: () =>
+				void (async () => {
+					const items = await Promise.all(readingOrder(chapters).map(async (chapter) => ({ chapter, text: chapter.notePath !== null && vault.exists(chapter.notePath) ? await vault.read(chapter.notePath) : null })));
+					const open = new Set((await listProposals(vault, book)).proposals.filter((p) => p.edits.some((e) => e.decision !== "rejected" && e.decision !== "applied")).map((p) => p.chapterId));
+					const plan = planExport(book, items, open);
+					const blocked = blocksExport(plan);
+					const lines = [
+						`${plan.included.length} chapter${plan.included.length === 1 ? "" : "s"} will be in the book${plan.omitted.length > 0 ? `; ${plan.omitted.length} will be left out` : ""}. No AI is used, and your chapters are not changed.`,
+						...plan.issues.map((i) => `${i.severity === "error" ? "Problem" : "Note"}: ${i.message}`),
+						blocked ? "Fix these, or export as a draft with what exists. A draft is saved with a different file name so it is not mistaken for the finished book." : "",
+					].filter((l) => l !== "");
+					const stamp = new Date().toISOString();
+					new ConfirmModal(this.app, blocked ? "This book is not ready to export" : "Export as EPUB", lines, blocked ? "Export as draft" : "Export", () =>
+						run(
+							writeExport(this.app, book.folder, exportFileName(book.title, stamp, blocked), buildEpub(book, plan.included, { modified: `${stamp.slice(0, 19)}Z` })).then((path) => {
+								new Notice(`Saved ${path}${blocked ? ` (draft; left out: ${plan.omitted.map((o) => o.chapter.designation).join(", ") || "nothing"})` : ""}`);
+							}),
+						),
+					).open();
+				})().catch(fail),
 			addEvent: () =>
 				new PickModal(this.app, "Add an event", [{ value: "", label: "(not in a chapter yet)" }, ...readingOrder(chapters).map((c) => ({ value: c.id, label: c.designation }))], "What happens", "Add", (chapterId, label) =>
 					run(loadTimeline(vault, book).then((t) => addEvent(vault, book, t.events, label, chapterId === "" ? null : chapterId, platformRandom))),

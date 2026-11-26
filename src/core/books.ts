@@ -17,6 +17,8 @@ export interface Book {
 	targetLanguages: string[];
 	/** Completion requirements the author configured. Defaults apply when a property is absent. */
 	completion: { chapterStatus: ChapterStatus };
+	/** Shown in exports; edited by hand in the book note. Not needed for anything else. */
+	author?: string;
 }
 
 export interface BookProblem {
@@ -45,6 +47,7 @@ function toNote(book: Omit<Book, "folder">): ManagedNote {
 			primary_language: book.primaryLanguage,
 			target_languages: book.targetLanguages,
 			completion_chapter_status: book.completion.chapterStatus,
+			author: book.author,
 		},
 		body: `# ${book.title}\n\nBook Harness configuration. Edit the properties above; the plugin keeps everything else in this folder.\n`,
 	};
@@ -61,7 +64,7 @@ function fromNote(folder: string, note: ManagedNote): Book {
 	if (!Array.isArray(targets) || !targets.every(isLanguageCode)) throw new ManagedNoteError("Target languages are invalid.");
 	const chapterStatus: unknown = fm.completion_chapter_status ?? DEFAULT_COMPLETION.chapterStatus;
 	if (!isChapterStatus(chapterStatus)) throw new ManagedNoteError("Completion chapter status is invalid.");
-	return { id: fm.bh_id, folder, title: fm.title.trim(), primaryLanguage: fm.primary_language, targetLanguages: [...new Set(targets)].filter((l) => l !== fm.primary_language), completion: { chapterStatus } };
+	return { id: fm.bh_id, folder, title: fm.title.trim(), primaryLanguage: fm.primary_language, targetLanguages: [...new Set(targets)].filter((l) => l !== fm.primary_language), completion: { chapterStatus }, ...(typeof fm.author === "string" && fm.author.trim() !== "" ? { author: fm.author.trim() } : {}) };
 }
 
 /** Register a folder as a book. Writes only inside the managed folder; never touches manuscript notes. */
