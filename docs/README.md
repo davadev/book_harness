@@ -19,4 +19,7 @@ Start with `STATUS.md`.
 | `ACCEPTANCE.md` | Acceptance scenarios → tests |
 | `STATUS.md` | Implementation ledger, blockers, change log |
 | `SPIKES.md` | Feasibility spike results (desktop-side), directions and what still needs devices |
+| `USER-GUIDE.md` | How an author sets up and uses the plugin, what to expect, what is not built |
+| `SYNC.md` | Why the managed notes are safe under file sync |
+| `evals/` | Real-model evaluation results (dated, with model digests) |
 | `DEVELOPMENT.md` | How the code is organized, checked and extended; invariants and where they are enforced; gotchas |

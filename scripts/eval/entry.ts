@@ -13,6 +13,7 @@ import { extractChapter } from "../../src/core/extraction";
 import { GuardedVault } from "../../src/core/guarded-vault";
 import { PROOFREAD_PROMPT, proofreadChapter } from "../../src/core/proofread";
 import { proseSegments } from "../../src/core/segmentation";
+import { syncTranslation } from "../../src/core/translation/translate";
 import { askBook, gatherEvidence } from "../../src/core/agent/ask";
 import { BookSearch } from "../../src/core/search";
 import { SUMMARY_PROMPT, summarizeChapter } from "../../src/core/summary";
@@ -142,6 +143,26 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 		const expectedAll = Object.values(EXPECTED).flat();
 		const extra = entities.filter((e) => !expectedAll.some((n) => nameKey(n).includes(nameKey(e.name)) || nameKey(e.name).includes(nameKey(n))));
 		lines.push(`- Entities that are not on the expected list (judge by eye): ${extra.length}: ${extra.map((e) => `${e.name} (${e.type})`).join(", ")}`, `- Total entities created: ${entities.length}`, "");
+	}
+
+	if (STEPS.includes("translate")) {
+		const paras = Number(process.env.EVAL_TRANSLATE_PARAS ?? 6);
+		const first = readFileSync(join(BOOK_DIR, readdirSync(BOOK_DIR).filter((f) => f.endsWith(".md")).sort()[0] as string), "utf8");
+		const prose = proseSegments(first).slice(0, paras);
+		const limited = first.slice(0, prose[prose.length - 1]?.end ?? first.length);
+		lines.push("### Translation (first paragraphs of Chapter 1)", "");
+		for (const language of ["de", "cs"]) {
+			const { raw, vault, book, chapters, rnd } = await setupBook(limited);
+			const chapter = chapters[0] as Chapter;
+			const t0 = Date.now();
+			try {
+				const r = await syncTranslation(vault, book, chapter, language, { model: { client, model, diagnostics: diag, now: () => new Date().toISOString(), sleep }, random: rnd, glossary: [] });
+				const out = [...raw.files.entries()].find(([p]) => p.includes(`/translations/${language}/ch_`) && !p.includes("_align"))?.[1] ?? "";
+				lines.push(`- ${language}: ${secs(t0)} s, ${r.translated} paragraphs translated, ${r.failed.length} failed, ${r.issues.length} problems left after repair${r.issues.length ? `: ${r.issues.join(" | ")}` : ""}`, "", ...out.replace(/^---[\s\S]*?---\n/, "").trim().split("\n\n").slice(0, 4).map((p) => `> ${p.replace(/\n/g, " ")}`), "");
+			} catch (e) {
+				lines.push(`- ${language}: FAILED ${(e as Error).message}`, "");
+			}
+		}
 	}
 
 	if (STEPS.includes("ask")) {
