@@ -1,3 +1,4 @@
+import type { Place } from "../core/agent/consistency";
 import type { RelationCandidate } from "../core/temporal/events";
 import type { TranslationRow } from "../core/translation/overview";
 import type { AskResult, Citation } from "../core/agent/ask";
@@ -46,6 +47,9 @@ export interface BookActions {
 	addEvent(): void;
 	exportEpub(): void;
 	toggleStatistics(): void;
+	checkConsistency(entityId: string): void;
+	decideFinding(entityId: string, findingId: string, decision: "open" | "mistake" | "intended" | "not-a-conflict"): void;
+	openPlace(place: Place): void;
 	findEvents(): void;
 	acceptCandidate(chapterId: string, id: string): void;
 	rejectCandidate(chapterId: string, id: string): void;
@@ -222,6 +226,28 @@ function renderContext(row: HTMLElement, c: PassageContext): void {
 	if (c.truncated) box.createDiv({ cls: "bh-note", text: "This is a selection: more is known than is shown." });
 }
 
+const DECISION_LABEL = { open: "Not decided", mistake: "A mistake to fix", intended: "Intended", "not-a-conflict": "Not a conflict" } as const;
+
+function renderFindings(root: HTMLElement, findings: Overview["findings"], actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-findings" });
+	box.createEl("h4", { text: `Possible contradictions (${findings.length})` });
+	box.createDiv({ cls: "bh-note", text: "Found by a model comparing passages; both quotes are checked against your text. You decide: it points, it does not judge." });
+	for (const { entityName, finding: f, secondLook } of findings) {
+		const item = box.createDiv({ cls: "bh-finding" });
+		item.createEl("strong", { text: `${entityName}: ${f.topic}` });
+		item.createSpan({ cls: "bh-badge", text: DECISION_LABEL[f.decision] });
+		if (secondLook) item.createDiv({ cls: "bh-callout", text: "A chapter this rests on changed since you decided. Look again." });
+		item.createDiv({ text: f.explanation });
+		for (const p of [f.first, f.second]) {
+			const row = item.createDiv({ cls: "bh-note" });
+			row.createEl("button", { cls: "bh-link", text: p.chapter }).addEventListener("click", () => actions.openPlace(p));
+			row.createSpan({ text: ` “${p.quote}”` });
+		}
+		const row = item.createDiv({ cls: "bh-actions" });
+		for (const d of ["mistake", "intended", "not-a-conflict", "open"] as const) if (d !== f.decision || secondLook) row.createEl("button", { cls: "bh-icon-button", text: DECISION_LABEL[d], attr: { "aria-label": `${DECISION_LABEL[d]}: ${f.topic}` } }).addEventListener("click", () => actions.decideFinding(f.entityId, f.id, d));
+	}
+}
+
 function renderSelected(root: HTMLElement, e: Entity, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-selected" });
 	box.createEl("h4", { text: `${e.name} (${e.type})` });
@@ -248,6 +274,7 @@ function renderEntities(root: HTMLElement, overview: Overview, actions: BookActi
 		const add = (label: string, aria: string, fn: () => void) => controls.createEl("button", { cls: "bh-icon-button", text: label, attr: { "aria-label": aria } }).addEventListener("click", fn);
 		add("Rename", `Rename ${e.name}`, () => actions.renameEntity(e.id, e.name));
 		add("Add alias", `Add another name for ${e.name}`, () => actions.addAlias(e.id));
+		add("Check consistency", `Look for places where the book contradicts itself about ${e.name}`, () => actions.checkConsistency(e.id));
 		add("Merge", `Merge ${e.name} into another ${e.type}`, () => actions.mergeEntity(e.id));
 		if (e.aliases.length > 0) {
 			add("Remove alias", `Remove one of the other names of ${e.name}`, () => actions.removeAlias(e.id));
@@ -474,6 +501,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 		for (const e of overview.unsupported) box.createDiv({ text: `${e.name} (${e.type}): the text it was found in has changed. Keep or remove it.` });
 	}
 	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
+	if (overview.findings.length > 0) renderFindings(root, overview.findings, bookActions);
 	if (overview.eventCandidates.length > 0) renderCandidates(root, overview, bookActions);
 	if (overview.timeline) renderTimeline(root, overview.timeline, bookActions);
 	if (overview.statistics) renderStatistics(root, overview.statistics, bookActions);

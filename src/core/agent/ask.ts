@@ -65,8 +65,8 @@ const MAX_CHRONOLOGY_CHARS = 1500;
 const norm = (s: string): string => s.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
 
 /** Retrieve the passages behind a question: deterministic search (plus meaning if the author turned it on), nothing from a model. */
-export async function gatherEvidence(vault: VaultPort, book: Book, chapters: readonly Chapter[], search: BookSearch, question: string, semantic: Semantic | null): Promise<{ evidence: Evidence[]; note: string | null }> {
-	const outcome = await search.search(vault, book, chapters, question, MAX_EXCERPTS, semantic);
+export async function gatherEvidence(vault: VaultPort, book: Book, chapters: readonly Chapter[], search: BookSearch, question: string, semantic: Semantic | null, limit = MAX_EXCERPTS): Promise<{ evidence: Evidence[]; note: string | null }> {
+	const outcome = await search.search(vault, book, chapters, question, limit, semantic);
 	const evidence: Evidence[] = [];
 	for (const result of outcome.results) {
 		const text = await vault.read(result.notePath);

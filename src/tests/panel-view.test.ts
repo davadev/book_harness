@@ -1479,3 +1479,77 @@ describe("BookHarnessView event suggestions", () => {
 		expect(text(view)).not.toContain("Suggested events");
 	});
 });
+
+describe("BookHarnessView consistency", () => {
+	const modalButton = (label: string) => Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label).at(-1) as HTMLButtonElement;
+	async function ready() {
+		const ctx = await setup();
+		const { createEntity } = await import("../core/entities");
+		await createEntity(ctx.vault, ctx.book, [], { type: "character", name: "Nora Voss", aliases: ["Nora"] }, counterRandom());
+		await (await import("../core/chapters")).addChapter(ctx.vault, ctx.book, [ctx.one, ctx.two], { designation: "Epilogue" }, counterRandom());
+		ctx.store.set("Book/one.md", "Nora Voss had grey eyes and kept the light.");
+		ctx.store.set("Book/two.md", "Nora Voss had green eyes and looked at her brother.");
+		ctx.host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		ctx.fake.state.active = "Book/one.md";
+		await ctx.view.onOpen();
+		return ctx;
+	}
+	const answer = (body: string | undefined) => {
+		const user = (JSON.parse(body ?? "{}") as { messages: Array<{ content: string }> }).messages[1]!.content;
+		const id = (text: string) => /<excerpt id="(P\d)"[^>]*>\n[^<]*?text\b/.exec(user)?.[1] ?? (user.indexOf(text) >= 0 ? new RegExp(`<excerpt id="(P\\d)"[^>]*>\\n[^<]*${text}`).exec(user)?.[1] : undefined);
+		return { findings: [{ topic: "Eye colour", first: { id: id("grey") ?? "P1", quote: "had grey eyes" }, second: { id: id("green") ?? "P2", quote: "had green eyes" }, explanation: "Grey, then green." }] };
+	};
+
+	it("checks one entity after confirmation, shows both places, and remembers the decision", async () => {
+		const { view, host, store, fake } = await ready();
+		await vi.waitFor(() => expect(view.contentEl.querySelector('button[aria-label^="Look for places"]')).not.toBeNull());
+		host.network.request.mockImplementation((req?: { body?: string }) => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify(answer(req?.body)) } }) }));
+		(view.contentEl.querySelector('button[aria-label^="Look for places"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Check consistency: Nora Voss"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		modalButton("Check").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Possible contradictions (1)"));
+		expect(Notice.instances.at(-1)?.message).toContain("1 possible contradiction(s) in 2 passages");
+		expect(text(view)).toContain("“had grey eyes”");
+		(view.contentEl.querySelector('button[aria-label="Intended: Eye colour"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(view.contentEl.querySelector(".bh-finding .bh-badge")?.textContent).toBe("Intended"));
+		expect(text(view)).not.toContain("changed since you decided");
+		// a chapter it rests on changes: it comes back for a second look
+		store.set("Book/two.md", "Nora Voss had green eyes and looked at her brother. More.");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("A chapter this rests on changed since you decided. Look again."));
+		// jump to a place
+		const selected: Array<[unknown, unknown]> = [];
+		const editor = { getValue: () => store.get("Book/one.md")!, offsetToPos: (n: number) => n, setSelection: (a: unknown, b: unknown) => selected.push([a, b]), scrollIntoView: vi.fn() };
+		(fake.leaf as unknown as { view: unknown }).view = Object.assign(new MarkdownView(), { editor });
+		(Array.from(view.contentEl.querySelectorAll(".bh-finding .bh-link")).find((b) => b.textContent === "Chapter 1") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(selected.length).toBe(1));
+		store.set("Book/one.md", "Nora Voss had grey eyes and kept the light. Edited.");
+		(Array.from(view.contentEl.querySelectorAll(".bh-finding .bh-link")).find((b) => b.textContent === "Chapter 1") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("changed since the check"));
+		(fake.leaf as unknown as { view: unknown }).view = {};
+		(Array.from(view.contentEl.querySelectorAll(".bh-finding .bh-link")).find((b) => b.textContent === "Chapter 1") as HTMLButtonElement).click();
+		store.delete("Book/one.md");
+		(Array.from(view.contentEl.querySelectorAll(".bh-finding .bh-link")).find((b) => b.textContent === "Chapter 1") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That chapter has no note to open."));
+	});
+	it("explains when the server is not set up, refuses a second check while one runs, and reports a failure", async () => {
+		const { view, host } = await ready();
+		await vi.waitFor(() => expect(view.contentEl.querySelector('button[aria-label^="Look for places"]')).not.toBeNull());
+		host.settings.device = { endpoint: "", generationModel: "", embeddingModel: "" };
+		(view.contentEl.querySelector('button[aria-label^="Look for places"]') as HTMLButtonElement).click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		let release: (v: { status: number; text: string }) => void = () => {};
+		host.network.request.mockImplementation(() => new Promise((r) => (release = r)));
+		(view.contentEl.querySelector('button[aria-label^="Look for places"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Check consistency"));
+		modalButton("Check").click();
+		await vi.waitFor(() => expect(host.network.request).toHaveBeenCalled());
+		(view.contentEl.querySelector('button[aria-label^="Look for places"]') as HTMLButtonElement).click();
+		expect(Notice.instances.at(-1)?.message).toBe("Still checking.");
+		release({ status: 500, text: "no" });
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBeTruthy());
+		await vi.waitFor(() => expect(view.contentEl.querySelector(".bh-findings")).toBeNull());
+	});
+});

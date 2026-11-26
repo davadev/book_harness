@@ -79,6 +79,15 @@ describe("finding events", () => {
 		const labels = await findEvents(vault, book, chapter, deps(model([{ events: [{ label: 5, quote: "The lamp" }, { label: "Lamp goes out", quote: "The lamp went out at eleven" }], relations: [] }])));
 		expect(labels.events).toBe(1);
 	});
+	it("does not let the model complete a date with a year or a day the passage does not give", async () => {
+		const { raw, vault, book, chapter, deps } = await setup();
+		raw.files.set("Book/one.md", "Lamp extinguished on 31 October. The keeper sailed in 1913.");
+		const reply = { events: [{ label: "Lamp out", quote: "Lamp extinguished on 31 October" }, { label: "Keeper sails", quote: "The keeper sailed in 1913" }], relations: [{ kind: "date", a: "Lamp out", b: "", duration: "", date: "1913-10-31", quote: "Lamp extinguished on 31 October" }, { kind: "date", a: "Lamp out", b: "", duration: "", date: "10-31", quote: "Lamp extinguished on 31 October" }, { kind: "date", a: "Lamp out", b: "", duration: "", date: "1913-10-15", quote: "Lamp extinguished on 31 October" }, { kind: "date", a: "Keeper sails", b: "", duration: "", date: "1913", quote: "The keeper sailed in 1913" }, { kind: "date", a: "Keeper sails", b: "", duration: "", date: "1913-10", quote: "The keeper sailed in 1913" }] };
+		const r = await findEvents(vault, book, chapter, deps(model([reply, reply])));
+		const c = (await loadCandidates(vault, book, chapter.id))!;
+		expect(c.relations.map((x) => x.date).sort()).toEqual(["1913", "1913-10"]);
+		expect(r.dropped).toBe(3);
+	});
 	it("never decides order itself: accepting suggestions builds statements the solver then uses, with the text as evidence", async () => {
 		const { vault, book, chapter, deps, rnd } = await setup();
 		await findEvents(vault, book, chapter, deps(model([REPLY, REPLY])));

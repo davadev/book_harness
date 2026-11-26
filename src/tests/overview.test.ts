@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), findEvents: vi.fn(), acceptCandidate: vi.fn(), rejectCandidate: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), checkConsistency: vi.fn(), decideFinding: vi.fn(), openPlace: vi.fn(), findEvents: vi.fn(), acceptCandidate: vi.fn(), rejectCandidate: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -546,5 +546,36 @@ describe("event suggestions rendering", () => {
 		expect(text()).toContain("X happens in 1913 (the text says: “In the spring of 1913”)");
 		expect(text()).toContain("Y before X");
 		expect(text()).not.toContain("Y before X (the text says");
+	});
+});
+
+describe("possible contradictions rendering", () => {
+	const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+	const place = (n: number) => ({ chapterId: `c${n}`, chapter: `Chapter ${n}`, notePath: `A/${n}.md`, passageId: "p", start: 0, end: 5, quote: `quote ${n}`, revision: "r" });
+	const finding = (decision: "open" | "mistake" | "intended" | "not-a-conflict") => ({ id: `fd_${decision}`, entityId: "en_1", topic: "Eye colour", first: place(1), second: place(3), explanation: "Grey, then green.", decision, decidedAt: decision === "open" ? null : {} });
+
+	it("shows both places and lets the author decide, offering a second look when the chapters changed", () => {
+		const a = actions();
+		const list = [{ entityName: "Nora", finding: finding("open"), secondLook: false }, { entityName: "Nora", finding: finding("intended"), secondLook: true }, { entityName: "Nora", finding: finding("mistake"), secondLook: false }];
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), findings: list }, a);
+		const t = text();
+		expect(t).toContain("Possible contradictions (3)");
+		expect(t).toContain("Nora: Eye colour");
+		expect(t).toContain("Grey, then green.");
+		expect(t).toContain("“quote 1”");
+		expect(t).toContain("A chapter this rests on changed since you decided. Look again.");
+		expect(root.querySelectorAll('button[aria-label="Intended: Eye colour"]').length).toBe(3);
+		expect(root.querySelectorAll('button[aria-label="A mistake to fix: Eye colour"]').length).toBe(2); // not offered where it is already the decision, except for a second look
+		(root.querySelector('button[aria-label="A mistake to fix: Eye colour"]') as HTMLButtonElement).click();
+		expect(a.decideFinding).toHaveBeenCalledWith("en_1", "fd_open", "mistake");
+		click("Chapter 3");
+		expect(a.openPlace).toHaveBeenCalledWith(place(3));
+	});
+	it("offers a consistency check for every entity", () => {
+		const a = actions();
+		const entity = { id: "en_1", bookId: "bk1", type: "character", name: "Nora", aliases: [], mergedInto: null, origin: "author", distinctFrom: [], archived: false, path: "A/n.md", body: "# Nora" } as never;
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [entity]), a);
+		(root.querySelector('button[aria-label="Look for places where the book contradicts itself about Nora"]') as HTMLButtonElement).click();
+		expect(a.checkConsistency).toHaveBeenCalledWith("en_1");
 	});
 });

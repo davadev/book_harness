@@ -28,6 +28,7 @@ import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
 import type { GuardedVault } from "../core/guarded-vault";
+import type { Finding } from "../core/agent/consistency";
 import type { EventCandidate, RelationCandidate } from "../core/temporal/events";
 import type { StoredConstraint, TimelineEvent } from "../core/temporal/timeline";
 import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimeline, loadTimeline, parseCivil, retireConstraint, retireEvent } from "../core/temporal/timeline";
@@ -35,6 +36,7 @@ import { buildEpub } from "../core/publishing/epub";
 import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
+import { checkConsistency, decideFinding, loadFindings, needsSecondLook, recordFindings, type Place } from "../core/agent/consistency";
 import { askBook, chronologyText, gatherEvidence, type AskResult, type Citation } from "../core/agent/ask";
 import { acceptCandidate, candidatesAreCurrent, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
@@ -72,6 +74,7 @@ export class BookHarnessView extends ItemView {
 	/** Questions asked of each book in this session, newest first; not saved anywhere. */
 	private readonly asked = new Map<string, AskResult[]>();
 	private asking: string | null = null;
+	private checking = false;
 	private readonly askDisclosed = new Set<string>();
 	private readonly contexts = new Map<string, PassageContext>();
 	private timer = 0;
@@ -169,9 +172,19 @@ export class BookHarnessView extends ItemView {
 					const relations = found.relations.filter((r) => found.decided[r.id] === undefined);
 					if (events.length + relations.length > 0) eventCandidates.push({ chapterId: c.id, designation: c.designation, current: candidatesAreCurrent(found, await vault.read(c.notePath as string)), events, relations });
 				}
+			const findings: Array<{ entityName: string; finding: Finding; secondLook: boolean }> = [];
+			if (book) {
+				const found = [];
+				for (const e of activeEntities(entityData.entities)) for (const f of await loadFindings(vault, book, e.id)) found.push({ entityName: e.name, finding: f });
+				if (found.length > 0) {
+					const revisions = new Map<string, string>();
+					for (const c of shown) if (c.notePath !== null && vault.exists(c.notePath)) revisions.set(c.id, revisionOf(await vault.read(c.notePath)));
+					for (const x of found) findings.push({ ...x, secondLook: needsSecondLook(x.finding, revisions) });
+				}
+			}
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations, eventCandidates) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations, eventCandidates, findings) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -245,6 +258,20 @@ export class BookHarnessView extends ItemView {
 		}
 		const from = view.editor.offsetToPos(r.ref.start);
 		const to = view.editor.offsetToPos(r.ref.end);
+		view.editor.setSelection(from, to);
+		view.editor.scrollIntoView({ from, to }, true);
+	}
+
+	private async openPlace(p: Place): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(p.notePath);
+		if (!(file instanceof TFile)) return void new Notice("That chapter has no note to open.");
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(file);
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView)) return;
+		if (revisionOf(view.editor.getValue()) !== p.revision) return void new Notice("This chapter changed since the check. Check again to jump to the exact place.", 8000);
+		const from = view.editor.offsetToPos(p.start);
+		const to = view.editor.offsetToPos(p.end);
 		view.editor.setSelection(from, to);
 		view.editor.scrollIntoView({ from, to }, true);
 	}
@@ -562,6 +589,32 @@ export class BookHarnessView extends ItemView {
 			},
 			acceptCandidate: (chapterId, id) => run(acceptCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id, platformRandom)),
 			rejectCandidate: (chapterId, id) => run(rejectCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id)),
+			checkConsistency: (entityId) => {
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				if (this.checking) return void new Notice("Still checking.", 8000);
+				const { base, device } = ready;
+				run(
+					entities().then((all) => {
+						const entity = all.find((e) => e.id === entityId) as Entity;
+						new ConfirmModal(this.app, `Check consistency: ${entity.name}`, [`Up to 10 short passages that mention ${entity.name} will be sent to ${base} using the model "${device.generationModel}".`, "The model only points at places that may contradict each other; both quotes are checked against your text, and you decide what each one is. Your chapters are not changed."], "Check", () => {
+							this.checking = true;
+							void (async () => {
+								const { evidence } = await gatherEvidence(vault, book, chapters, this.host.search, [entity.name, ...entity.aliases].join(" "), null, 10);
+								const now = () => new Date().toISOString();
+								const report = await checkConsistency({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, entity, evidence);
+								await recordFindings(vault, book, entity, report.found);
+								new Notice(`${entity.name}: ${report.found.length} possible contradiction(s) in ${report.excerpts} passages; ${report.dropped} left out because the quote was not in the text.`, 8000);
+							})().catch(fail).finally(() => {
+								this.checking = false;
+								this.markDirty();
+							});
+						}).open();
+					}),
+				);
+			},
+			decideFinding: (entityId, findingId, decision) => run(entities().then((all) => decideFinding(vault, book, all.find((e) => e.id === entityId) as Entity, findingId, decision, chapters, (c) => vault.read(c.notePath as string)))),
+			openPlace: (p) => void this.openPlace(p),
 			toggleStatistics: () => {
 				if (this.statistics?.bookId === book.id) {
 					this.statistics = null;

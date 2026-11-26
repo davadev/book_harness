@@ -9,6 +9,7 @@ import type { CoverageView } from "./proofread";
 import type { Proposal } from "./proposals";
 import type { SummaryStatus } from "./summary";
 import type { ChapterStats } from "./task-state";
+import type { Finding } from "./agent/consistency";
 import type { EventCandidate, RelationCandidate } from "./temporal/events";
 import { translationTodos, type LanguageOverview } from "./translation/overview";
 import type { AskResult } from "./agent/ask";
@@ -64,6 +65,8 @@ export interface Overview {
 	/** Translation state per target language of the book; empty when the book has none. */
 	translations: LanguageOverview[];
 	/** Event suggestions per chapter that the author has not decided yet. */
+	/** Possible inconsistencies found for entities, with the entity's name and whether a decided one needs a second look. */
+	findings: Array<{ entityName: string; finding: Finding; secondLook: boolean }>;
 	eventCandidates: Array<{ chapterId: string; designation: string; current: boolean; events: EventCandidate[]; relations: RelationCandidate[] }>;
 	/** Jobs to show: running, interrupted, and recently finished ones that were not dismissed. */
 	jobs: JobRecord[];
@@ -83,7 +86,7 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 const NO_SUMMARY: OverviewRow["summary"] = { status: "none", path: null };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null, search: SearchOutcome | null = null, meaning: Overview["meaning"] = { available: false, enabled: false, status: null }, contexts: ReadonlyMap<string, PassageContext> = new Map(), timeline: TimelineView | null = null, statistics: BookStatistics | null = null, ask: Overview["ask"] = { history: [], pending: null }, translations: readonly LanguageOverview[] = [], eventCandidates: Overview["eventCandidates"] = []): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null, search: SearchOutcome | null = null, meaning: Overview["meaning"] = { available: false, enabled: false, status: null }, contexts: ReadonlyMap<string, PassageContext> = new Map(), timeline: TimelineView | null = null, statistics: BookStatistics | null = null, ask: Overview["ask"] = { history: [], pending: null }, translations: readonly LanguageOverview[] = [], eventCandidates: Overview["eventCandidates"] = [], findings: Overview["findings"] = []): Overview {
 	const ordered = readingOrder(chapters);
 	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies), ...translationTodos(book, translations)];
 	return {
@@ -105,6 +108,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 		ask,
 		translations: [...translations],
 		eventCandidates: [...eventCandidates],
+		findings: [...findings],
 		search,
 		selected,
 		entities: [...entities].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name)),
