@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -243,6 +243,23 @@ describe("overview rendering", () => {
 		expect(text()).toContain("Ghost (character): the text it was found in has changed.");
 		click("Find characters, places and objects");
 		expect(a.extractEntities).toHaveBeenCalled();
+	});
+
+	it("shows the tapped entity with its aliases and notes, and can open or close it", () => {
+		const a = actions();
+		const sel = { id: "en_1", bookId: "bk1", type: "character", name: "Philip", aliases: ["Phil"], mergedInto: null, origin: "author" as const, distinctFrom: [], archived: false, path: "A/_book-harness/entities/character/en_1.md", body: "# Philip\n\n## History (AI-managed)\n\n- Chapter 1: Walks.\n" };
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], sel), a);
+		const box = root.querySelector(".bh-selected") as HTMLElement;
+		expect(box.textContent).toContain("Philip (character)");
+		expect(box.textContent).toContain("Also: Phil");
+		expect(box.querySelector(".bh-body")?.textContent).toBe("## History (AI-managed)\n\n- Chapter 1: Walks.");
+		(Array.from(box.querySelectorAll("button")).find((b) => b.textContent === "Open note") as HTMLButtonElement).click();
+		expect(a.openNote).toHaveBeenCalledWith(sel.path);
+		(Array.from(box.querySelectorAll("button")).find((b) => b.textContent === "Close") as HTMLButtonElement).click();
+		expect(a.closeEntity).toHaveBeenCalled();
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], { ...sel, aliases: [] }), a);
+		expect(text()).not.toContain("Also:");
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

@@ -31,6 +31,8 @@ export interface Overview {
 	rows: OverviewRow[];
 	/** Required items first, each group in reading order. */
 	todos: Todo[];
+	/** The entity the author tapped in the editor, shown in detail. */
+	selected: Entity | null;
 	/** Active entities, by kind then name. */
 	entities: Entity[];
 	/** Pairs of the same kind that share a word: for the author to look at, never merged automatically. */
@@ -57,7 +59,7 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 const NO_SUMMARY: OverviewRow["summary"] = { status: "none", path: null };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = []): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null): Overview {
 	const ordered = readingOrder(chapters);
 	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies)];
 	return {
@@ -72,6 +74,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 			proofread: coverage.get(chapter.id) ?? null,
 		})),
 		proposals: proposals.filter((p) => p.edits.some((e) => e.decision !== "rejected" && e.decision !== "applied")).map((proposal) => ({ proposal, designation: chapters.find((c) => c.id === proposal.chapterId)?.designation ?? "Unknown chapter" })),
+		selected,
 		entities: [...entities].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name)),
 		duplicates: possibleDuplicates(entities),
 		unsupported: [...unsupported],

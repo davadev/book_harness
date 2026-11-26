@@ -49,6 +49,17 @@ export class PluginSettingsTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
+				heading: "Highlights in the editor",
+				items: [
+					{ name: "Highlight recognized names", desc: "Underline mentions of the entities found in each chapter. Your text is never changed; turning this off removes the underlines.", control: { type: "toggle", key: "highlight.enabled" } },
+					{ name: "Characters", control: { type: "toggle", key: "highlight.character" } },
+					{ name: "Places", control: { type: "toggle", key: "highlight.place" } },
+					{ name: "Objects", control: { type: "toggle", key: "highlight.object" } },
+					{ name: "Other kinds", control: { type: "toggle", key: "highlight.other" } },
+				],
+			},
+			{
+				type: "group",
 				heading: "Diagnostics",
 				items: [
 					{

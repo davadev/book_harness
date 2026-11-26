@@ -15,6 +15,7 @@ import { EXTRACTED_KINDS, extractChapter, loadEvidence, rebuildHistories, unsupp
 import { ENTITY_TYPES, markDistinct, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
+import { entitiesForChapter } from "../core/occurrences";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
 import type { BookHarnessSettings } from "../settings/defaults";
 import { ConfirmModal } from "./confirm-modal";
@@ -32,6 +33,8 @@ export interface PanelHost {
 	settings: BookHarnessSettings;
 	network: NetworkPort;
 	diagnostics: DiagnosticsLog;
+	selectedEntity: string | null;
+	clearSelectedEntity(): void;
 }
 
 /** Tell the author what applying did, in plain words. */
@@ -122,10 +125,11 @@ export class BookHarnessView extends ItemView {
 			const evidence: ChapterEvidence[] = [];
 			if (book) for (const c of shown) { const e = await loadEvidence(vault, book, c.id); if (e) evidence.push(e); }
 			const unsupported = book && evidence.length > 0 ? unsupportedExtracted(entityData.entities, evidence) : [];
+			const selected = book && this.host.selectedEntity ? entitiesForChapter(entityData.entities, [this.host.selectedEntity])[0] ?? null : null;
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -278,6 +282,10 @@ export class BookHarnessView extends ItemView {
 			},
 			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
 			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
+			closeEntity: () => {
+				this.host.clearSelectedEntity();
+				this.markDirty();
+			},
 			addEntity: () =>
 				new PickModal(this.app, "Add an entity", ENTITY_TYPES.map((t) => ({ value: t, label: t })), "Name", "Add", (type, name) => run(entities().then((all) => createEntity(vault, book, all, { type, name }, platformRandom)))).open(),
 			renameEntity: (id, current) => new PromptModal(this.app, "Rename", "Name (the old name stays as an alias)", current, (v) => run(withEntity(id, (all, e) => renameEntity(vault, all, e, v)))).open(),

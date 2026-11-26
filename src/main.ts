@@ -1,6 +1,8 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Plugin, type MarkdownView } from "obsidian";
 import { DEFAULT_CRASH_STATE, crashStatePath, decideOnLoad, readCrashState, writeCrashState } from "./crashGuard";
 import { logDebug, logError, logWarn, setLogLevel } from "./logger";
+import { EditorHighlights } from "./platform/editor-highlights";
+import { linkSelection, removeHighlightAtCursor } from "./platform/highlight-commands";
 import { EditorReview } from "./platform/editor-review";
 import { JobRunner } from "./core/jobs";
 import { onVaultRename } from "./platform/follow-renames";
@@ -22,6 +24,8 @@ export default class BookHarnessPlugin extends Plugin {
 	readonly network: NetworkPort = obsidianNetwork;
 	readonly diagnostics = new DiagnosticsLog();
 	private editorReview: EditorReview | null = null;
+	/** The entity whose details the panel shows (set by tapping a highlight), or null. */
+	selectedEntity: string | null = null;
 
 	async onload(): Promise<void> {
 		try {
@@ -48,14 +52,32 @@ export default class BookHarnessPlugin extends Plugin {
 		this.addCommand({ id: "register-book", name: "Register this note's folder as a book", callback: () => registerActiveFolder(this.app) });
 		this.editorReview = new EditorReview(this.app);
 		this.registerEditorExtension(this.editorReview.extension());
+		const highlights = new EditorHighlights(this.app, () => this.settings.highlight, (id) => void this.selectEntity(id));
+		this.registerEditorExtension(highlights.extension());
+		this.addCommand({
+			id: "toggle-highlights",
+			name: "Show or hide entity highlights",
+			callback: () => {
+				this.settings.highlight.enabled = !this.settings.highlight.enabled;
+				void this.saveSettings().then(() => highlights.schedule());
+			},
+		});
+		this.addCommand({ id: "link-selection", name: "Link the selected words to an entity", editorCallback: (editor, view) => void linkSelection(this.app, highlights, editor, view as MarkdownView) });
+		this.addCommand({ id: "remove-highlight", name: "Remove the entity highlight at the cursor", editorCallback: (editor, view) => void removeHighlightAtCursor(this.app, highlights, editor, view as MarkdownView) });
 		this.registerView(PANEL_VIEW_TYPE, (leaf) => new BookHarnessView(leaf, this.runner, this));
 		this.addCommand({ id: "open-panel", name: "Open the book panel", callback: () => void this.openPanel() });
 		this.addRibbonIcon("book-open", "Open the book panel", () => void this.openPanel());
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.vault.on("rename", (file, oldPath) => void onVaultRename(this.app, file, oldPath)));
 			const review = this.editorReview as EditorReview;
-			const refresh = () => review.schedule();
-			this.register(() => review.cancel());
+			const refresh = () => {
+				review.schedule();
+				highlights.schedule();
+			};
+			this.register(() => {
+				review.cancel();
+				highlights.cancel();
+			});
 			this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
 			this.registerEvent(this.app.workspace.on("file-open", refresh));
 			this.registerEvent(this.app.workspace.on("layout-change", refresh));
@@ -67,6 +89,17 @@ export default class BookHarnessPlugin extends Plugin {
 			void writeCrashState(adapter, path, DEFAULT_CRASH_STATE);
 		}, SURVIVED_MS);
 		this.register(() => window.clearTimeout(survived));
+	}
+
+	/** A highlight was tapped: show that entity beside the chapter. */
+	async selectEntity(id: string): Promise<void> {
+		this.selectedEntity = id;
+		await this.openPanel();
+		for (const leaf of this.app.workspace.getLeavesOfType(PANEL_VIEW_TYPE)) if (leaf.view instanceof BookHarnessView) leaf.view.markDirty();
+	}
+
+	clearSelectedEntity(): void {
+		this.selectedEntity = null;
 	}
 
 	async openPanel(): Promise<void> {
@@ -85,7 +118,7 @@ export default class BookHarnessPlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		setLogLevel(this.settings.logLevel);
 		// Only the shared part goes to data.json; this device's server address never syncs.
-		await this.saveData({ logLevel: this.settings.logLevel });
+		await this.saveData({ logLevel: this.settings.logLevel, highlight: this.settings.highlight });
 		this.app.saveLocalStorage(DEVICE_KEY, this.settings.device);
 	}
 }

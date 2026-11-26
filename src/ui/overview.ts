@@ -1,5 +1,6 @@
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
+import type { Entity } from "../core/entities";
 import type { Overview, PanelContext } from "../core/panel-model";
 import type { JobRecord } from "../core/jobs";
 import type { ChapterStats } from "../core/task-state";
@@ -21,6 +22,7 @@ export interface BookActions {
 	extractEntities(): void;
 	mergeDuplicate(fromId: string, intoId: string): void;
 	keepDistinct(aId: string, bId: string): void;
+	closeEntity(): void;
 	addEntity(): void;
 	renameEntity(id: string, current: string): void;
 	addAlias(id: string): void;
@@ -66,6 +68,16 @@ function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): voi
 	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
 	const label = job.state === "running" ? "Cancel" : "Dismiss";
 	box.createEl("button", { cls: "bh-button", text: label }).addEventListener("click", () => (job.state === "running" ? actions.cancelJob(job.id) : actions.dismissJob(job.id)));
+}
+
+function renderSelected(root: HTMLElement, e: Entity, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-selected" });
+	box.createEl("h4", { text: `${e.name} (${e.type})` });
+	if (e.aliases.length > 0) box.createDiv({ cls: "bh-note", text: `Also: ${e.aliases.join(", ")}` });
+	box.createDiv({ cls: "bh-body", text: e.body.replace(/^# .*\n+/, "").trim() });
+	const controls = box.createDiv({ cls: "bh-actions" });
+	controls.createEl("button", { cls: "bh-button", text: "Open note" }).addEventListener("click", () => actions.openNote(e.path));
+	controls.createEl("button", { cls: "bh-button", text: "Close" }).addEventListener("click", () => actions.closeEntity());
 }
 
 function renderEntities(root: HTMLElement, overview: Overview, actions: BookActions): void {
@@ -168,6 +180,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
+	if (overview.selected) renderSelected(root, overview.selected, bookActions);
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);
 	if (overview.duplicates.length > 0) {

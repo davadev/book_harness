@@ -12,6 +12,11 @@ describe("normalizeSettings", () => {
 		expect(normalizeSettings({ logLevel: "loud" }, null).logLevel).toBe("error");
 	});
 
+	it("keeps highlight switches that are real booleans and falls back to on for anything else", () => {
+		expect(normalizeSettings({ highlight: { enabled: false, place: false, character: "no", object: 0 } }, null).highlight).toEqual({ enabled: false, character: true, place: false, object: true, other: true });
+		expect(normalizeSettings({ highlight: "x" }, null).highlight).toEqual(DEFAULT_SETTINGS.highlight);
+	});
+
 	it("reads device settings only from the device record, trimmed, and ignores mistyped values", () => {
 		expect(normalizeSettings({ device: { endpoint: "http://synced" } }, { endpoint: " http://phone:11434 ", generationModel: 5, embeddingModel: "m" }).device).toEqual({ endpoint: "http://phone:11434", generationModel: "", embeddingModel: "m" });
 	});

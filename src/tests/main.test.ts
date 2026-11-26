@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import BookHarnessPlugin from "../main";
+import { JobRunner } from "../core/jobs";
+import { BookHarnessView } from "../platform/panel-view";
 import { Notice } from "./__mocks__/obsidian";
 
 function makePlugin(files: Record<string, string> = {}, failWrite = false) {
@@ -46,7 +48,7 @@ describe("BookHarnessPlugin", () => {
 		Object.assign((plugin.app as unknown as { workspace: object }).workspace, { getActiveFile: () => null });
 		Notice.instances.length = 0;
 		await plugin.onload();
-		expect(added.map((c) => c.id)).toEqual(["register-book", "open-panel"]);
+		expect(added.map((c) => c.id)).toEqual(["register-book", "toggle-highlights", "link-selection", "remove-highlight", "open-panel"]);
 		added[0]?.callback();
 		expect(Notice.instances[0]?.message).toMatch(/Open a note/);
 	});
@@ -58,7 +60,7 @@ describe("BookHarnessPlugin", () => {
 		expect(p.views.has("book-harness-panel")).toBe(true);
 		expect(p.views.get("book-harness-panel")?.({ app: {} })).toBeDefined();
 		expect(p.events.filter((e) => typeof e !== "function")).toHaveLength(5);
-		expect(p.editorExtensions).toHaveLength(1);
+		expect(p.editorExtensions).toHaveLength(2);
 		for (const h of vaultHandlers) h({ path: "a.md" }, "b.md");
 		p.events.filter((e): e is () => void => typeof e === "function").forEach((f) => f());
 		const leaf = { setViewState: vi.fn(() => Promise.resolve()) };
@@ -79,6 +81,43 @@ describe("BookHarnessPlugin", () => {
 		await plugin.openPanel();
 		expect(workspace.revealLeaf).not.toHaveBeenCalled();
 		p.commands.find((c) => c.id === "open-panel")?.callback();
+	});
+
+	it("toggles highlights from a command and saves the choice", async () => {
+		const { plugin } = makePlugin();
+		const p = plugin as unknown as { commands: Array<{ id: string; callback: () => void }> };
+		await plugin.onload();
+		expect(plugin.settings.highlight.enabled).toBe(true);
+		p.commands.find((c) => c.id === "toggle-highlights")?.callback();
+		await vi.waitFor(() => expect(stub(plugin).data).toMatchObject({ highlight: { enabled: false } }));
+		expect(plugin.settings.highlight.enabled).toBe(false);
+	});
+
+	it("wires the editor commands and the highlight tap to the right actions", async () => {
+		const { plugin } = makePlugin();
+		const p = plugin as unknown as { commands: Array<{ id: string; editorCallback?: (e: unknown, v: unknown) => void }>; editorExtensions: unknown[] };
+		await plugin.onload();
+		const editor = { getSelection: () => "", getValue: () => "", getCursor: () => ({}), posToOffset: () => 0 };
+		const view = { file: null };
+		p.commands.find((c) => c.id === "link-selection")?.editorCallback?.(editor, view);
+		p.commands.find((c) => c.id === "remove-highlight")?.editorCallback?.(editor, view);
+		await vi.waitFor(() => expect(Notice.instances.map((n) => n.message)).toContain("Select the words you want to link first."));
+		await vi.waitFor(() => expect(Notice.instances.map((n) => n.message)).toContain("There is no highlight at the cursor."));
+		expect(p.editorExtensions).toHaveLength(2);
+	});
+
+	it("shows a tapped entity in the panel and forgets it when closed", async () => {
+		const { plugin, workspace } = makePlugin();
+		await plugin.onload();
+		const view = Object.assign(new BookHarnessView({ app: {} } as never, new JobRunner(), plugin), {});
+		const dirty = vi.spyOn(view, "markDirty").mockImplementation(() => undefined);
+		const leaf = { view, setViewState: vi.fn(() => Promise.resolve()) };
+		workspace.getLeavesOfType.mockReturnValue([leaf, { view: {} }]);
+		await plugin.selectEntity("en_x");
+		expect(plugin.selectedEntity).toBe("en_x");
+		expect(dirty).toHaveBeenCalled();
+		plugin.clearSelectedEntity();
+		expect(plugin.selectedEntity).toBeNull();
 	});
 
 	it("clears the crash counter once the launch survives", async () => {
@@ -116,7 +155,7 @@ describe("BookHarnessPlugin", () => {
 		plugin.settings.logLevel = "debug";
 		plugin.settings.device.endpoint = "http://phone-only:11434";
 		await plugin.saveSettings();
-		expect(stub(plugin).data).toEqual({ logLevel: "debug" });
+		expect(stub(plugin).data).toEqual({ logLevel: "debug", highlight: { enabled: true, character: true, place: true, object: true, other: true } });
 		expect(JSON.stringify(stub(plugin).data)).not.toContain("phone-only");
 		expect(local.get("book-harness-device")).toMatchObject({ endpoint: "http://phone-only:11434" });
 		const again = makePlugin();

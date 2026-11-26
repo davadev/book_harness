@@ -40,7 +40,7 @@ async function setup() {
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
 	const runner = new JobRunner();
-	const host = { settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
+	const host = { selectedEntity: null as string | null, clearSelectedEntity() { host.selectedEntity = null; }, settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
 	const view = new BookHarnessView({ app: fake.app } as never, runner, host);
 	(view as unknown as { app: unknown }).app = fake.app;
 	return { fake, vault, book, one, two, view, store: fake.store, runner, host };
@@ -767,6 +767,31 @@ describe("BookHarnessView edge cases", () => {
 		button(view, "Find characters, places and objects").click();
 		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Find")!.click();
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Read 1 of 1 chapters."), { timeout: 3000 });
+	});
+
+	it("shows the tapped entity beside the chapter and lets the author close or open it", async () => {
+		const { fake, view, host, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
+		button(view, "Add an entity").click();
+		(document.body.querySelector("input") as HTMLInputElement).value = "Philip";
+		(document.body.querySelector("input") as HTMLInputElement).dispatchEvent(new Event("input"));
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Add")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Philip"));
+		const key = [...store.keys()].find((k) => k.includes("/entities/"))!;
+		host.selectedEntity = key.split("/").pop()!.replace(".md", "");
+		view.markDirty();
+		await vi.waitFor(() => expect(view.contentEl.querySelector(".bh-selected")).not.toBeNull());
+		expect(view.contentEl.querySelector(".bh-selected")?.textContent).toContain("Philip (character)");
+		button(view, "Open note", view.contentEl.querySelector(".bh-selected") as HTMLElement).click();
+		expect(fake.openFile).toHaveBeenCalled();
+		button(view, "Close", view.contentEl.querySelector(".bh-selected") as HTMLElement).click();
+		await vi.waitFor(() => expect(view.contentEl.querySelector(".bh-selected")).toBeNull());
+		host.selectedEntity = "en_gone";
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
+		expect(view.contentEl.querySelector(".bh-selected")).toBeNull();
 	});
 
 	it("explains what is missing before finding entities", async () => {

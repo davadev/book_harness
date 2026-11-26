@@ -36,7 +36,7 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 | AC-K-2 | Manual create/rename/merge/split/correct entity and event works, with redirects and reference updates. | U, I, UI | 6 | Not started |
 | AC-K-3 | Rewrite a chapter to remove an extracted fact: unsupported evidence removed; other chapters' evidence and author-confirmed canon retained; manual info never silently overwritten (conflict raised). | U, I, M | 6 | Not started |
 | AC-K-4 | Highlight extracted mentions; tap/click Philip → cross-chapter history in side panel without leaving the chapter (desktop + mobile). | UI, E, D | 6 | Not started |
-| AC-K-5 | Disable plugin/highlights: prose unchanged (byte equality). Edit chapter: stale ranges never highlight the wrong text. | U, I, E | 6 | Not started |
+| AC-K-5 | Disable plugin/highlights: prose unchanged (byte equality). Edit chapter: stale ranges never highlight the wrong text. | U, I, E | 6 | Passed (CI): highlights never write and are recomputed from current text; E pending |
 
 ## Search and agent
 

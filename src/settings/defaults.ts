@@ -7,11 +7,14 @@ import type { LogLevel } from "../logger";
  */
 export interface BookHarnessSettings {
 	logLevel: LogLevel;
+	/** Which recognized mentions are highlighted in the editor. Off by switch or per kind; the text is never changed. */
+	highlight: { enabled: boolean; character: boolean; place: boolean; object: boolean; other: boolean };
 	device: DeviceAiSettings;
 }
 
 export const DEFAULT_SETTINGS: BookHarnessSettings = {
 	logLevel: "error",
+	highlight: { enabled: true, character: true, place: true, object: true, other: true },
 	device: { endpoint: "", generationModel: "", embeddingModel: "" },
 };
 
@@ -22,7 +25,10 @@ const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 export function normalizeSettings(shared: unknown, device: unknown): BookHarnessSettings {
 	const o = shared && typeof shared === "object" ? (shared as Record<string, unknown>) : {};
 	const d = device && typeof device === "object" ? (device as Record<string, unknown>) : {};
+	const h = o.highlight && typeof o.highlight === "object" ? (o.highlight as Record<string, unknown>) : {};
+	const on = (k: keyof BookHarnessSettings["highlight"]): boolean => (typeof h[k] === "boolean" ? h[k] : DEFAULT_SETTINGS.highlight[k]);
 	return {
+		highlight: { enabled: on("enabled"), character: on("character"), place: on("place"), object: on("object"), other: on("other") },
 		logLevel: LEVELS.find((l) => l === o.logLevel) ?? DEFAULT_SETTINGS.logLevel,
 		device: { endpoint: text(d.endpoint), generationModel: text(d.generationModel), embeddingModel: text(d.embeddingModel) },
 	};

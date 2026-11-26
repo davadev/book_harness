@@ -154,3 +154,35 @@
 	min-width: 0;
 	padding: var(--size-4-1) 0;
 }
+
+.bh-selected {
+	border: 1px solid var(--interactive-accent);
+	border-radius: var(--radius-m);
+	margin: var(--size-4-2) 0;
+	overflow-wrap: anywhere;
+	padding: var(--size-4-2) var(--size-4-3);
+}
+
+.bh-body {
+	white-space: pre-wrap;
+	font-size: var(--font-ui-small);
+}
+
+/* Recognized names in the editor. The kind is carried by the line style (solid, dashed, dotted), not by colour alone. */
+.bh-ent {
+	border-block-end: 2px solid var(--text-faint);
+	cursor: pointer;
+}
+
+.bh-ent-character {
+	border-block-end-style: solid;
+	border-block-end-color: var(--color-accent);
+}
+
+.bh-ent-place {
+	border-block-end-style: dashed;
+}
+
+.bh-ent-object {
+	border-block-end-style: dotted;
+}
