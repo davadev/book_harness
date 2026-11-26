@@ -7,7 +7,7 @@ Last updated: 2026-11-26 (Phase 0 complete; no code written). Update this file a
 | Phase | Name | Status | Notes |
 |---|---|---|---|
 | 0 | Discovery and documentation | **Done (this session)** | Docs written; open decisions recorded. Playbook docs partly unread — see DISCOVERY §1. |
-| 1 | Scaffold, spikes S1–S8, compatibility proof | Not started | Blocked on O-3 (project housekeeping); spikes S4/S5/S7 need author input/devices. |
+| 1 | Scaffold, spikes S1–S8, compatibility proof | Not started | Unblocked (O-3 resolved). S4 needs O-1; S5/S7 need iPhone. |
 | 2 | Core books/chapters/schemas/panel/write-gate skeleton | Not started | |
 | 3 | Revisions, invalidation, jobs, TODO foundation | Not started | |
 | 4 | AI infrastructure | Not started | O-1, O-2 open. |
@@ -51,11 +51,10 @@ Last updated: 2026-11-26 (Phase 0 complete; no code written). Update this file a
 
 None blocks Phase 0. Blocking later work:
 
-- **O-3** project housekeeping (plugin id/name, repo, licence, `git init`) — blocks Phase 1 scaffold.
 - **O-1** decision-provider interface not found — blocks the real decision-model adapter (Phase 4); port + test double can proceed.
-- **O-6** languages in scope — blocks S1/S3 conclusions.
-- **O-7 / R-16** the agent has no device access: every mobile result depends on the author testing BRAT prereleases.
-- **O-4** chapter identity approach — blocks Phase 2.
+- **R-16** agent has no device access: mobile results depend on the author (iOS only; **Android unverifiable**, needs an explicit decision).
+- Resolved 2026-11-26: O-3, O-4, O-6, O-7, O-11 (see DECISIONS).
+- Still open: O-1, O-2, O-5, O-8, O-9, O-10, O-12.
 - Full list with recommendations: `DECISIONS.md` Open table (O-1 … O-12).
 
 ## 4. Reuse ledger
@@ -91,4 +90,5 @@ No code, no tests, no gates run. The first gate run happens at the end of Phase 
 
 | Date | Change |
 |---|---|
+| 2026-11-26 | Author resolved O-3, O-4, O-6, O-7, O-11. |
 | 2026-11-26 | Phase 0: read master prompt; inspected playbook and timeline plugin (`7f1611d`, v0.13.2); wrote AGENTS.md/CLAUDE.md and docs (SPEC, DISCOVERY, COMPATIBILITY, ARCHITECTURE, AI-AND-PROMPTS, MANUSCRIPT-PROTECTION, SEARCH-AND-AGENT, TEMPORAL-ENGINE, PUBLISHING, IMPLEMENTATION-PLAN, DECISIONS, RISKS, ACCEPTANCE, STATUS). No upstream repo modified. |
