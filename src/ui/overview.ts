@@ -1,3 +1,4 @@
+import type { TimelineRow, TimelineView } from "../core/temporal/timeline";
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Entity } from "../core/entities";
@@ -38,6 +39,10 @@ export interface BookActions {
 	splitEntity(id: string): void;
 	archiveEntity(id: string): void;
 	addTodo(): void;
+	addEvent(): void;
+	addTimeRelation(): void;
+	removeStatement(id: string): void;
+	removeEvent(id: string): void;
 	completeTodo(manualId: string): void;
 	cancelJob(jobId: string): void;
 	dismissJob(jobId: string): void;
@@ -198,6 +203,47 @@ function renderProposal(root: HTMLElement, entry: Overview["proposals"][number],
 	if (accepted.length > 0) bulk.createEl("button", { cls: "bh-button mod-cta", text: `Apply ${accepted.length} accepted change${accepted.length === 1 ? "" : "s"} to the chapter` }).addEventListener("click", () => actions.applyProposal(proposal.id));
 }
 
+function timelineRow(list: HTMLElement, r: TimelineRow, actions: BookActions, showChapter: boolean): void {
+	const li = list.createEl("li", { cls: "bh-event" });
+	li.createSpan({ text: r.label });
+	if (showChapter && r.chapter !== null) li.createSpan({ cls: "bh-badge", text: r.chapter });
+	if (r.when !== null) li.createSpan({ cls: "bh-badge", text: `${r.definite ? "" : "possibly "}${r.when}` });
+	if (r.after.length > 0) li.createDiv({ cls: "bh-note", text: `Certainly after: ${r.after.join(", ")}` });
+	if (r.because.length > 0) li.createDiv({ cls: "bh-note", text: `Calculated from: ${r.because.join("; ")}` });
+	li.createEl("button", { cls: "bh-icon-button", text: "Remove", attr: { "aria-label": `Remove event ${r.label}` } }).addEventListener("click", () => actions.removeEvent(r.id));
+}
+
+function renderTimeline(root: HTMLElement, view: TimelineView, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-timeline" });
+	box.createEl("h4", { text: `Timeline (${view.narrative.length} event${view.narrative.length === 1 ? "" : "s"})` });
+	if (view.conflict) {
+		const warn = box.createDiv({ cls: "bh-callout" });
+		warn.createEl("strong", { text: "These statements contradict each other" });
+		for (const t of view.conflict) warn.createDiv({ text: t });
+		warn.createDiv({ cls: "bh-note", text: "No order is shown until one of them is removed." });
+	}
+	box.createEl("h5", { text: "As the book tells it" });
+	box.createDiv({ cls: "bh-note", text: "Chapter order. This is the telling order, not necessarily the order things happened." });
+	const told = box.createEl("ol");
+	for (const r of view.narrative) timelineRow(told, r, actions, true);
+	if (view.world.length > 0) {
+		box.createEl("h5", { text: "What the evidence settles" });
+		box.createDiv({ cls: "bh-note", text: "Events are listed in order only where your statements prove it. Where nothing links two events, their position here means nothing." });
+		const happened = box.createEl("ul");
+		for (const r of view.world) timelineRow(happened, r, actions, false);
+	}
+	if (view.unordered.length > 0) box.createDiv({ cls: "bh-note", text: `${view.unordered.length} pair${view.unordered.length === 1 ? "" : "s"} of events have no known order.` });
+	if (view.statements.length > 0) {
+		box.createEl("h5", { text: "Your statements about time" });
+		const list = box.createEl("ul");
+		for (const st of view.statements) {
+			const li = list.createEl("li");
+			li.createSpan({ text: st.text });
+			li.createEl("button", { cls: "bh-icon-button", text: "Remove", attr: { "aria-label": `Remove statement: ${st.text}` } }).addEventListener("click", () => actions.removeStatement(st.id));
+		}
+	}
+}
+
 function statsLine(stats: ChapterStats): string {
 	const words = stats.words === null ? "Not counted yet" : `${stats.words.toLocaleString("en-US")} words`;
 	const state = { current: "", stale: " (out of date: the text changed since it was counted)", not_processed: "", failed: " (last count failed)", canceled: " (last count was canceled)" }[stats.status];
@@ -241,6 +287,8 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
 	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
+	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
+	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());
 	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());
 	bar.createEl("button", { cls: "bh-button", text: "Proofread chapters" }).addEventListener("click", () => bookActions.proofread());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
@@ -268,6 +316,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 		for (const e of overview.unsupported) box.createDiv({ text: `${e.name} (${e.type}): the text it was found in has changed. Keep or remove it.` });
 	}
 	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
+	if (overview.timeline) renderTimeline(root, overview.timeline, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });
 		box.createEl("h4", { text: `To do (${overview.todos.length})` });

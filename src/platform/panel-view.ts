@@ -28,6 +28,8 @@ import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
 import type { GuardedVault } from "../core/guarded-vault";
+import type { StoredConstraint, TimelineEvent } from "../core/temporal/timeline";
+import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimeline, loadTimeline, parseCivil, retireConstraint, retireEvent } from "../core/temporal/timeline";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
@@ -141,7 +143,9 @@ export class BookHarnessView extends ItemView {
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts) : null;
+			const timeline = book ? await loadTimeline(vault, book) : null;
+			if (timeline) problems.push(...timeline.problems);
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -426,6 +430,34 @@ export class BookHarnessView extends ItemView {
 					}),
 				),
 			addTodo: () => new PromptModal(this.app, "Add a to-do", "To do", "", (v) => run(addManualTodo(vault, book, v))).open(),
+			addEvent: () =>
+				new PickModal(this.app, "Add an event", [{ value: "", label: "(not in a chapter yet)" }, ...readingOrder(chapters).map((c) => ({ value: c.id, label: c.designation }))], "What happens", "Add", (chapterId, label) =>
+					run(loadTimeline(vault, book).then((t) => addEvent(vault, book, t.events, label, chapterId === "" ? null : chapterId, platformRandom))),
+				).open(),
+			addTimeRelation: () =>
+				void loadTimeline(vault, book).then((t) => {
+					const events = t.events.filter((e) => !e.retired);
+					if (events.length === 0) return void new Notice("Add an event first.");
+					const options = events.map((e) => ({ value: e.id, label: e.label })).sort((x, y) => x.label.localeCompare(y.label));
+					const find = (id: string) => events.find((e) => e.id === id) as TimelineEvent;
+					const kinds = [
+						{ value: "before", label: "One event happens before another" },
+						{ value: "after", label: "One event happens a set time after another" },
+						{ value: "same", label: "Two events happen at the same time" },
+						{ value: "date", label: "An event has a date" },
+					];
+					new PickModal(this.app, "Add a time relation", kinds, null, "Next", (kind) => {
+						if (kind === "date") return new PickModal(this.app, "Which event has a date?", options, "Date (1923, 1923-10 or 1923-10-31)", "Add", (id, text) => run(Promise.resolve().then(() => addDate(vault, book, find(id), parseCivil(text), platformRandom)))).open();
+						const first = kind === "before" ? "Which event happens first?" : kind === "after" ? "Which event comes first?" : "First event";
+						new PickModal(this.app, first, options, kind === "after" ? "How long after (for example 3 days)" : null, "Next", (a, duration) =>
+							new PickModal(this.app, kind === "before" ? "Which happens later?" : kind === "after" ? "Which happens after it?" : "Second event", options, null, "Add", (b) =>
+								run(kind === "before" ? addBefore(vault, book, find(a), find(b), platformRandom) : kind === "after" ? addAfterBy(vault, book, find(a), find(b), duration, platformRandom) : addSimultaneous(vault, book, find(a), find(b), platformRandom)),
+							).open(),
+						).open();
+					}).open();
+				}, fail),
+			removeStatement: (id) => run(loadTimeline(vault, book).then((t) => retireConstraint(vault, book, t.constraints.find((c) => c.id === id) as StoredConstraint))),
+			removeEvent: (id) => run(loadTimeline(vault, book).then((t) => retireEvent(vault, book, t.events.find((e) => e.id === id) as TimelineEvent))),
 			completeTodo: (id) => run(setManualTodoDone(vault, book, id, true)),
 			planChapter: () => new PromptModal(this.app, "Plan a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v }, platformRandom))).open(),
 		};

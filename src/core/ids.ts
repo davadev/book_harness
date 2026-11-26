@@ -1,5 +1,5 @@
 /** Opaque, prefixed, lowercase, URL-safe identifiers. Independent of names and paths. */
-export type IdPrefix = "bk" | "ch" | "nt" | "en" | "ev" | "oc" | "fc" | "pr" | "jb" | "sg" | "tr" | "cv";
+export type IdPrefix = "bk" | "ch" | "nt" | "en" | "ev" | "oc" | "fc" | "pr" | "jb" | "sg" | "tr" | "cv" | "tc";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"; // RFC 4648 base32, lowercase
 const ID_PATTERN = /^([a-z]{2})_([a-z2-7]{16})$/;

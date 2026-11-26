@@ -1055,3 +1055,76 @@ describe("following renames", () => {
 		await expect(onVaultRename(fake.app, { path: "a" } as never, "b")).resolves.toBeUndefined();
 	});
 });
+
+describe("BookHarnessView timeline", () => {
+	const step = (label: string, choice?: string | number, input?: string) => {
+		const selects = document.body.querySelectorAll("select");
+		const select = selects[selects.length - 1] as HTMLSelectElement | undefined;
+		if (select && choice !== undefined) {
+			select.value = typeof choice === "number" ? (select.options[choice] as HTMLOptionElement).value : (Array.from(select.options).find((o) => o.textContent === choice) as HTMLOptionElement | undefined)?.value ?? choice;
+			select.dispatchEvent(new Event("change"));
+		}
+		const inputs = document.body.querySelectorAll("input");
+		const box = inputs[inputs.length - 1] as HTMLInputElement | undefined;
+		if (box && input !== undefined) {
+			box.value = input;
+			box.dispatchEvent(new Event("input"));
+		}
+		const buttons = Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label);
+		(buttons[buttons.length - 1] as HTMLButtonElement).click();
+	};
+
+	it("adds events and statements, calculates dates, shows a contradiction and removes what the author removes", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add a time relation"));
+		button(view, "Add a time relation").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Add an event first."));
+		for (const name of ["The lamp goes out", "The door opens", "Tomas arrives"]) {
+			button(view, "Add an event").click();
+			step("Add", 1, name);
+			await vi.waitFor(() => expect(text(view)).toContain(name));
+		}
+		const ids = () => Array.from(document.querySelectorAll("option")).length;
+		expect(ids()).toBe(0);
+		const relate = async (kind: string, a: string, b: string | null, input?: string) => {
+			button(view, "Add a time relation").click();
+			await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+			step("Next", kind);
+			step(kind === "date" ? "Add" : "Next", a, input);
+			if (kind !== "date") step("Add", b as string);
+		};
+		await relate("before", "The lamp goes out", "The door opens");
+		await relate("after", "The door opens", "Tomas arrives", "3 days");
+		await vi.waitFor(() => expect(text(view)).toContain("Tomas arrives happens 3 days after The door opens"));
+		await relate("date", "The door opens", null, "1923-10-31");
+		await vi.waitFor(() => expect(text(view)).toContain("possibly 1923-11-03"));
+		expect(text(view)).toContain("Calculated from:");
+		await relate("same", "The lamp goes out", "Tomas arrives");
+		await vi.waitFor(() => expect(text(view)).toContain("happen at the same time"));
+		await vi.waitFor(() => expect(text(view)).toContain("These statements contradict each other"));
+		const removal = 'button[aria-label="Remove statement: The lamp goes out and Tomas arrives happen at the same time"]';
+		await vi.waitFor(() => expect(view.contentEl.querySelector(removal)).not.toBeNull());
+		(view.contentEl.querySelector(removal) as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("These statements contradict each other"));
+		(view.contentEl.querySelector('button[aria-label="Remove event The door opens"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("happens in 1923-10-31"));
+		expect([...store.keys()].some((p) => p.includes("/timeline/events/"))).toBe(true);
+	});
+
+	it("reports a bad date or duration as a notice", async () => {
+		const { fake, view } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an event"));
+		button(view, "Add an event").click();
+		step("Add", 0, "Only event");
+		await vi.waitFor(() => expect(text(view)).toContain("Only event"));
+		button(view, "Add a time relation").click();
+		await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+		step("Next", "date");
+		step("Add", 0, "soon");
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("is not a date"));
+	});
+});

@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -389,5 +389,23 @@ describe("overview rendering", () => {
 		renderOverview(root, { kind: "book", book, activePath: "A/z.md", role: "folder", chapterId: null }, null, actions());
 		expect(root.querySelector("ol")).toBeNull();
 		expect(text()).toContain("My Book");
+	});
+});
+
+describe("timeline rendering", () => {
+	it("says whether a time is exact or only possible, and singular/plural wording", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+		const row = (id: string, definite: boolean) => ({ id, label: id, chapter: null, when: "1923-10-31", definite, because: [], after: [] });
+		const view = { narrative: [row("only", true)], world: [row("only", true)], unordered: [["a", "b"]] as Array<[string, string]>, conflict: null, statements: [] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), timeline: view }, a);
+		expect(text()).toContain("Timeline (1 event)");
+		expect(text()).toContain("1923-10-31");
+		expect(text()).not.toContain("possibly");
+		expect(text()).toContain("1 pair of events have no known order");
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), timeline: { ...view, narrative: [row("a", false), row("b", false)], unordered: [["a", "b"], ["a", "c"]] } }, a);
+		expect(text()).toContain("Timeline (2 events)");
+		expect(text()).toContain("possibly 1923-10-31");
+		expect(text()).toContain("2 pairs of events");
 	});
 });
