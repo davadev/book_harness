@@ -34,6 +34,7 @@ import { buildEpub } from "../core/publishing/epub";
 import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
+import { askBook, chronologyText, gatherEvidence, type AskResult, type Citation } from "../core/agent/ask";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
@@ -63,6 +64,10 @@ export class BookHarnessView extends ItemView {
 	/** Statistics the author asked to see, with the book they belong to. Cleared when another book is shown. */
 	private statistics: { bookId: string; data: BookStatistics } | null = null;
 	private useMeaning = false;
+	/** Questions asked of each book in this session, newest first; not saved anywhere. */
+	private readonly asked = new Map<string, AskResult[]>();
+	private asking: string | null = null;
+	private readonly askDisclosed = new Set<string>();
 	private readonly contexts = new Map<string, PassageContext>();
 	private timer = 0;
 
@@ -151,7 +156,7 @@ export class BookHarnessView extends ItemView {
 			problems.push(...jobs.problems);
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -454,6 +459,37 @@ export class BookHarnessView extends ItemView {
 					}),
 				),
 			addTodo: () => new PromptModal(this.app, "Add a to-do", "To do", "", (v) => run(addManualTodo(vault, book, v))).open(),
+			ask: (question) => {
+				const q = question.trim();
+				if (q === "") return void new Notice("Type a question first.", 8000);
+				if (this.asking !== null) return void new Notice("Still answering the last question.", 8000);
+				const device = this.host.settings.device;
+				const base = normalizeEndpoint(device.endpoint);
+				if (base === null || device.generationModel === "") return void new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
+				const run1 = () => {
+					this.asking = q;
+					this.markDirty();
+					void (async () => {
+						const semantic = this.useMeaning ? this.semantic() : null;
+						const { evidence } = await gatherEvidence(vault, book, chapters, this.host.search, q, semantic);
+						const t = await loadTimeline(vault, book);
+						const chronology = t.events.length > 0 ? chronologyText(buildTimeline(t.events, t.constraints, chapters)) : null;
+						const now = () => new Date().toISOString();
+						const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+						const result = await askBook({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, q, evidence, chronology);
+						this.asked.set(book.id, [result, ...(this.asked.get(book.id) ?? [])].slice(0, 10));
+					})().catch(fail).finally(() => {
+						this.asking = null;
+						this.markDirty();
+					});
+				};
+				if (this.askDisclosed.has(book.id)) return run1();
+				new ConfirmModal(this.app, "Ask the book", [`Your question and up to 8 short passages from your chapters will be sent to ${base} using the model "${device.generationModel}" each time you ask.`, "Nothing is changed in your book. The answer is shown with quotes you can check; quotes that are not in the text are removed.", "This confirmation is shown once for this book until you restart Obsidian."], "Ask", () => {
+					this.askDisclosed.add(book.id);
+					run1();
+				}).open();
+			},
+			openCitation: (c: Citation) => void this.openPassage(c.result),
 			toggleStatistics: () => {
 				if (this.statistics?.bookId === book.id) {
 					this.statistics = null;

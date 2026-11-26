@@ -1248,3 +1248,80 @@ describe("BookHarnessView statistics", () => {
 		await vi.waitFor(() => expect(text(view)).not.toContain("Statistics ("));
 	});
 });
+
+describe("BookHarnessView ask the book", () => {
+	const reply = (answer: object) => ({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify(answer) } }) });
+	const askBox = (v: BookHarnessView) => v.contentEl.querySelector(".bh-ask input") as HTMLInputElement;
+	const askButton = (v: BookHarnessView) => button(v, "Ask", v.contentEl.querySelector(".bh-ask") as Element);
+	const confirmAsk = () => (Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === "Ask" && !b.closest(".bh-ask")).at(-1) as HTMLButtonElement).click();
+
+	it("asks only after the author confirms, shows checkable quotes, and does not ask again for the same book", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "Edmund Voss sailed at dawn and was never seen again.");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Ask the book"));
+		askButton(view).click();
+		expect(Notice.instances.at(-1)?.message).toBe("Type a question first.");
+		askBox(view).value = "Who sailed at dawn?";
+		askButton(view).click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address and the generation model");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		askButton(view).click();
+		expect(document.body.textContent).toContain('using the model "gen" each time you ask');
+		expect(host.network.request).not.toHaveBeenCalled();
+		host.network.request.mockResolvedValue(reply({ answer: "Edmund Voss.", status: "answered", citations: [{ id: "P1", quote: "Edmund Voss sailed at dawn" }] }));
+		confirmAsk();
+		await vi.waitFor(() => expect(text(view)).toContain("Answered from the excerpts"));
+		expect(text(view)).toContain("Edmund Voss.");
+		expect(text(view)).toContain("“Edmund Voss sailed at dawn”");
+		expect(text(view)).toContain("Based on 1 passage from Chapter 1.");
+		const selected: Array<[unknown, unknown]> = [];
+		const editor = { getValue: () => store.get("Book/one.md")!, offsetToPos: (n: number) => n, setSelection: (a: unknown, b: unknown) => selected.push([a, b]), scrollIntoView: vi.fn() };
+		(fake.leaf as unknown as { view: unknown }).view = Object.assign(new MarkdownView(), { editor });
+		(view.contentEl.querySelector(".bh-answer .bh-link") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(selected.length).toBe(1));
+		// second question: no confirmation, and the question is sent with the passages
+		askBox(view).value = "Again?";
+		askButton(view).click();
+		await vi.waitFor(() => expect(host.network.request).toHaveBeenCalledTimes(2));
+		const sent = JSON.parse((host.network.request.mock.calls[0]![0] as { body: string }).body).messages.map((m: { content: string }) => m.content).join("\n");
+		expect(sent).toContain("Question: Who sailed at dawn?");
+		expect(sent).toContain("Edmund Voss sailed at dawn");
+		await vi.waitFor(() => expect(view.contentEl.querySelectorAll(".bh-answer").length).toBe(2));
+	});
+
+	it("includes the author's computed chronology, refuses a second question while one is running, and reports a failed call", async () => {
+		const { fake, view, host, store, vault, book } = await setup();
+		const { addEvent, addBefore } = await import("../core/temporal/timeline");
+		const rnd = counterRandom();
+		const a = await addEvent(vault, book, [], "Lamp goes out", null, rnd);
+		const b = await addEvent(vault, book, [a], "Door opens", null, rnd);
+		await addBefore(vault, book, a, b, rnd);
+		store.set("Book/one.md", "The lamp went out and the door opened.");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		(view as unknown as { useMeaning: boolean }).useMeaning = true; // meaning search switched on, but no embedding model: keyword fallback
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Ask the book"));
+		let release: (v: { status: number; text: string }) => void = () => {};
+		host.network.request.mockImplementation(() => new Promise((r) => (release = r)));
+		askBox(view).value = "lamp";
+		askButton(view).click();
+		confirmAsk();
+		await vi.waitFor(() => expect(text(view)).toContain("Asking: lamp"));
+		askBox(view).value = "door";
+		askButton(view).click();
+		expect(Notice.instances.at(-1)?.message).toBe("Still answering the last question.");
+		release(reply({ answer: "Fine", status: "not_in_excerpts", citations: [] }));
+		await vi.waitFor(() => expect(text(view)).not.toContain("Asking: lamp"));
+		const sent = JSON.parse((host.network.request.mock.calls[0]![0] as { body: string }).body).messages[1].content as string;
+		expect(sent).toContain("<chronology>");
+		expect(sent).toContain("- Door opens, certainly after: Lamp goes out");
+		host.network.request.mockRejectedValue(new Error("no server"));
+		askBox(view).value = "door";
+		askButton(view).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBeTruthy());
+		await vi.waitFor(() => expect(text(view)).not.toContain("Asking: door"));
+	});
+});

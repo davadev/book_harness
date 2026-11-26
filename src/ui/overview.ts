@@ -1,3 +1,4 @@
+import type { AskResult, Citation } from "../core/agent/ask";
 import type { BookStatistics, Occurrence, WordRow } from "../core/stats/statistics";
 import type { TimelineRow, TimelineView } from "../core/temporal/timeline";
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
@@ -43,6 +44,8 @@ export interface BookActions {
 	addEvent(): void;
 	exportEpub(): void;
 	toggleStatistics(): void;
+	ask(question: string): void;
+	openCitation(c: Citation): void;
 	openOccurrence(o: Occurrence, word: string): void;
 	addTimeRelation(): void;
 	removeStatement(id: string): void;
@@ -131,6 +134,36 @@ function renderSearch(root: HTMLElement, overview: Overview, actions: BookAction
 		const context = overview.contexts.get(`${r.ref.chapterId}:${r.ref.passageId}`);
 		if (!context) row.createEl("button", { cls: "bh-link", text: "Show context" }).addEventListener("click", () => actions.showContext(r));
 		else renderContext(row, context);
+	}
+}
+
+const ASK_STATUS: Record<AskResult["status"], string> = { answered: "Answered from the excerpts", partly: "Only partly answered", not_in_excerpts: "Not answered: the excerpts do not say" };
+
+function renderAsk(root: HTMLElement, ask: Overview["ask"], actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-ask" });
+	box.createEl("h4", { text: "Ask the book" });
+	const form = box.createDiv({ cls: "bh-actions" });
+	const input = form.createEl("input", { cls: "bh-input", type: "text", placeholder: "Ask a question about your book", attr: { "aria-label": "Ask a question about your book" } });
+	const go = () => actions.ask(input.value);
+	form.createEl("button", { cls: "bh-button", text: "Ask" }).addEventListener("click", go);
+	input.addEventListener("keydown", (e) => {
+		if (e.key === "Enter") go();
+	});
+	box.createDiv({ cls: "bh-note", text: "Your question and a few passages found in your chapters are sent to your model server. The answer can be wrong: read the quotes. Nothing is changed in your book." });
+	if (ask.pending !== null) box.createDiv({ cls: "bh-note", text: `Asking: ${ask.pending}` });
+	for (const a of ask.history) {
+		const item = box.createDiv({ cls: "bh-answer" });
+		item.createEl("strong", { text: a.question });
+		item.createSpan({ cls: "bh-badge", text: ASK_STATUS[a.status] });
+		item.createDiv({ text: a.answer });
+		for (const c of a.citations) {
+			const row = item.createDiv({ cls: "bh-note" });
+			row.createEl("button", { cls: "bh-link", text: c.chapter }).addEventListener("click", () => actions.openCitation(c));
+			row.createSpan({ text: ` “${c.quote}”` });
+		}
+		const facts = [`Based on ${a.excerpts} passage${a.excerpts === 1 ? "" : "s"}${a.chapters.length ? ` from ${a.chapters.join(", ")}` : ""}.`, a.usedChronology ? "The timeline you built was included." : "", a.dropped > 0 ? `${a.dropped} quote${a.dropped === 1 ? " was" : "s were"} left out because ${a.dropped === 1 ? "it does" : "they do"} not appear in the text.` : ""].filter((x) => x !== "");
+		item.createDiv({ cls: "bh-note", text: facts.join(" ") });
+		for (const issue of a.issues) item.createDiv({ cls: "bh-note", text: issue });
 	}
 }
 
@@ -347,6 +380,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 
 	if (!overview) return;
 	renderSearch(root, overview, bookActions);
+	renderAsk(root, overview.ask, bookActions);
 	if (overview.selected) renderSelected(root, overview.selected, bookActions);
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);

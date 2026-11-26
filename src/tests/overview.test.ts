@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -439,5 +439,33 @@ describe("statistics rendering", () => {
 		expect(text().match(/None found\./g)).toHaveLength(2);
 		expect(text()).toContain("Nothing is guessed.");
 		expect(text()).not.toContain("(a guess)");
+	});
+});
+
+describe("ask the book rendering", () => {
+	const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+	const result = { ref: { bookId: "b", chapterId: "c", passageId: "p", sourceRevision: "r", start: 0, end: 5 }, chapter: "Chapter 1", notePath: "A/1.md", snippet: "s", score: 1, entities: [], provenance: "manuscript" as const, channels: { keyword: 1, meaning: null } };
+	const answer = (over: object) => ({ question: "Who?", answer: "Nora.", status: "answered" as const, citations: [{ label: "P1", quote: "Nora kept the light", chapter: "Chapter 1", result }], dropped: 0, issues: [], excerpts: 1, chapters: ["Chapter 1"], usedChronology: false, ...over });
+
+	it("labels how well each question was answered, shows quotes that open the place, and says what was left out", () => {
+		const a = actions();
+		const ask = { pending: "Next?", history: [answer({}), answer({ question: "Q2", status: "partly", dropped: 1, excerpts: 3, chapters: ["Chapter 1", "Chapter 2"], usedChronology: true, issues: ["A problem."] }), answer({ question: "Q3", status: "not_in_excerpts", dropped: 2, citations: [], excerpts: 0, chapters: [] })] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), ask }, a);
+		expect(text()).toContain("Answered from the excerpts");
+		expect(text()).toContain("Only partly answered");
+		expect(text()).toContain("Not answered: the excerpts do not say");
+		expect(text()).toContain("Based on 1 passage from Chapter 1.");
+		expect(text()).toContain("Based on 3 passages from Chapter 1, Chapter 2. The timeline you built was included. 1 quote was left out because it does not appear in the text.");
+		expect(text()).toContain("Based on 0 passages. 2 quotes were left out because they do not appear in the text.");
+		expect(text()).toContain("A problem.");
+		expect(text()).toContain("Asking: Next?");
+		(root.querySelector(".bh-answer .bh-link") as HTMLButtonElement).click();
+		expect(a.openCitation).toHaveBeenCalled();
+		const input = root.querySelector(".bh-ask input") as HTMLInputElement;
+		input.value = "Why?";
+		input.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+		expect(a.ask).not.toHaveBeenCalled();
+		input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+		expect(a.ask).toHaveBeenCalledWith("Why?");
 	});
 });
