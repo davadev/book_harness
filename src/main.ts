@@ -9,6 +9,8 @@ import { onVaultRename } from "./platform/follow-renames";
 import { PANEL_VIEW_TYPE, BookHarnessView } from "./platform/panel-view";
 import { registerActiveFolder } from "./platform/register-book";
 import { PluginSettingsTab } from "./settings/SettingsTab";
+import type { IndexStorePort } from "./core/embeddings";
+import { createIndexStore } from "./platform/index-store";
 import { BookSearch } from "./core/search";
 import { DiagnosticsLog } from "./core/ai/diagnostics";
 import type { NetworkPort } from "./core/ai/network";
@@ -25,6 +27,7 @@ export default class BookHarnessPlugin extends Plugin {
 	readonly network: NetworkPort = obsidianNetwork;
 	readonly diagnostics = new DiagnosticsLog();
 	readonly search = new BookSearch();
+	indexStore!: IndexStorePort;
 	private editorReview: EditorReview | null = null;
 	/** The entity whose details the panel shows (set by tapping a highlight), or null. */
 	selectedEntity: string | null = null;
@@ -50,6 +53,7 @@ export default class BookHarnessPlugin extends Plugin {
 			return;
 		}
 		await this.loadSettings();
+		this.indexStore = createIndexStore(this.app, this.manifest);
 		logDebug("settings loaded");
 		this.addCommand({ id: "register-book", name: "Register this note's folder as a book", callback: () => registerActiveFolder(this.app) });
 		this.editorReview = new EditorReview(this.app);

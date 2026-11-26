@@ -41,7 +41,8 @@ async function setup() {
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
 	const runner = new JobRunner();
-	const host = { search: new BookSearch(), selectedEntity: null as string | null, clearSelectedEntity() { host.selectedEntity = null; }, settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
+	const indexFiles = new Map<string, ArrayBuffer>();
+	const host = { indexStore: { read: (k: string) => Promise.resolve(indexFiles.get(k) ?? null), write: (k: string, d: ArrayBuffer) => (indexFiles.set(k, d), Promise.resolve()) }, search: new BookSearch(), selectedEntity: null as string | null, clearSelectedEntity() { host.selectedEntity = null; }, settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
 	const view = new BookHarnessView({ app: fake.app } as never, runner, host);
 	(view as unknown as { app: unknown }).app = fake.app;
 	return { fake, vault, book, one, two, view, store: fake.store, runner, host };
@@ -825,6 +826,100 @@ describe("BookHarnessView edge cases", () => {
 		input().value = "nothingfound";
 		button(view, "Search").click();
 		await vi.waitFor(() => expect(text(view)).toContain("Nothing found for “nothingfound”"));
+	});
+
+	it("builds the meaning index after confirmation and then mixes meaning results into a search", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The ship reached the quay at dawn.");
+		store.set("Book/two.md", `A walk in the forest. ${"More words here. ".repeat(80)}\n\n${"Second paragraph about the forest again. ".repeat(40)}`);
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		const embed = (texts: string[]) => texts.map((t) => [/(ship|quay|harbour)/i.test(t) ? 1 : 0, /forest/i.test(t) ? 1 : 0, 0.01]);
+		host.network.request.mockImplementation((req?: { body?: string }) => Promise.resolve({ status: 200, text: JSON.stringify({ model: "emb", embeddings: embed((JSON.parse(req?.body ?? "{}") as { input: string[] }).input) }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Meaning index: not built yet (0 of 3 passages)."));
+		button(view, "Build or update").click();
+		expect(document.body.textContent).toContain("Only passages that are new or changed since the last build are sent.");
+		expect(document.body.textContent).toContain('using the embedding model "emb"');
+		expect(host.network.request).not.toHaveBeenCalled();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Build")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Indexed 2 of 2 chapters."));
+		await vi.waitFor(() => expect(text(view)).toContain("Meaning index: up to date (3 of 3 passages)."));
+		expect(text(view)).toContain("Chapter 1: 1 passage embedded.");
+		expect(text(view)).toContain("Chapter 2: 2 passages embedded.");
+		const input = () => view.contentEl.querySelector("input[type=search]") as HTMLInputElement;
+		const box = () => view.contentEl.querySelector("input[type=checkbox]") as HTMLInputElement;
+		input().value = "harbour";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Nothing found for “harbour”"));
+		box().checked = true;
+		input().value = "harbour";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Meaning results are included."));
+		expect(text(view)).toContain("The ship reached the quay at dawn.");
+		expect(view.contentEl.querySelector(".bh-result .bh-badge")?.textContent).toBe("meaning");
+		expect(box().checked).toBe(true);
+	});
+
+	it("says so when the meaning index is already up to date, and uses the singular for one chapter", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The ship reached the quay.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		host.network.request.mockImplementation((req?: { body?: string }) => Promise.resolve({ status: 200, text: JSON.stringify({ model: "emb", embeddings: (JSON.parse(req?.body ?? "{}") as { input: string[] }).input.map(() => [1, 0.5]) }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Build or update"));
+		for (const round of [1, 2]) {
+			button(view, round === 1 ? "Build or update" : "Rebuild").click();
+			expect(document.body.textContent).toContain("The text of 1 chapter will be sent");
+			Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Build")!.click();
+			await vi.waitFor(() => expect(Notice.instances.filter((n) => n.message === "Indexed 1 of 1 chapters.")).toHaveLength(round));
+			await vi.waitFor(() => expect(text(view)).toContain(round === 1 ? "1 passage embedded." : "Already up to date."));
+			button(view, "Dismiss").click();
+			await vi.waitFor(() => expect(text(view)).not.toContain("Meaning index finished"));
+		}
+	});
+
+	it("explains what is missing before building the meaning index", async () => {
+		const { fake, view, host } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Search"));
+		expect(view.contentEl.querySelector("input[type=checkbox]")).toBeNull();
+		expect(text(view)).not.toContain("Meaning index");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("Meaning index:"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "" };
+	});
+
+	it("guards building the meaning index against a missing setup and a running job", async () => {
+		const { fake, view, host, runner } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Build or update"));
+		host.settings.device = { endpoint: "", generationModel: "", embeddingModel: "emb" };
+		button(view, "Build or update").click();
+		expect(Notice.instances.at(-1)?.message).toBe("Set the server address and the embedding model in the Book Harness settings first.");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		vi.spyOn(runner, "hasRunningJob").mockReturnValueOnce(true);
+		button(view, "Build or update").click();
+		expect(Notice.instances.at(-1)?.message).toBe("A job is already running for this book.");
+	});
+
+	it("reports a meaning-index build that could not start", async () => {
+		const { fake, view, host } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "", embeddingModel: "emb" };
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Build or update"));
+		fake.appAny.vault.create = () => Promise.reject(new Error("disk full"));
+		button(view, "Build or update").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Build")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("disk full"));
 	});
 
 	it("explains what is missing before finding entities", async () => {

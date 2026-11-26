@@ -15,6 +15,7 @@ import { EXTRACTED_KINDS, extractChapter, loadEvidence, rebuildHistories, unsupp
 import { ENTITY_TYPES, markDistinct, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
+import type { IndexStorePort } from "../core/embeddings";
 import type { BookSearch, SearchOutcome, SearchResult } from "../core/search";
 import { revisionOf } from "../core/revision";
 import { entitiesForChapter } from "../core/occurrences";
@@ -38,6 +39,7 @@ export interface PanelHost {
 	selectedEntity: string | null;
 	clearSelectedEntity(): void;
 	search: BookSearch;
+	indexStore: IndexStorePort;
 }
 
 /** Tell the author what applying did, in plain words. */
@@ -51,6 +53,7 @@ export class BookHarnessView extends ItemView {
 	private dirty = true;
 	private drawing = false;
 	private lastSearch: SearchOutcome | null = null;
+	private useMeaning = false;
 	private timer = 0;
 
 	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner, private readonly host: PanelHost) {
@@ -130,10 +133,13 @@ export class BookHarnessView extends ItemView {
 			if (book) for (const c of shown) { const e = await loadEvidence(vault, book, c.id); if (e) evidence.push(e); }
 			const unsupported = book && evidence.length > 0 ? unsupportedExtracted(entityData.entities, evidence) : [];
 			const selected = book && this.host.selectedEntity ? entitiesForChapter(entityData.entities, [this.host.selectedEntity])[0] ?? null : null;
+			const device = this.host.settings.device;
+			const embedding = normalizeEndpoint(device.endpoint) !== null && device.embeddingModel !== "" ? { base: normalizeEndpoint(device.endpoint) as string, model: device.embeddingModel } : null;
+			const meaningStatus = book && embedding ? await this.host.search.meaningStatus(vault, book, shown, this.host.indexStore, embedding.model) : null;
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -145,11 +151,11 @@ export class BookHarnessView extends ItemView {
 	}
 
 	/** The checks every model action shares. Says what is wrong in a notice and returns null, or what the action needs. */
-	private readyToSend(book: Book, chapters: Chapter[]): { base: string; device: BookHarnessSettings["device"]; targets: Chapter[] } | null {
+	private readyToSend(book: Book, chapters: Chapter[], model: "generationModel" | "embeddingModel" = "generationModel"): { base: string; device: BookHarnessSettings["device"]; targets: Chapter[] } | null {
 		const device = this.host.settings.device;
 		const base = normalizeEndpoint(device.endpoint);
-		if (base === null || device.generationModel === "") {
-			new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
+		if (base === null || device[model] === "") {
+			new Notice(`Set the server address and the ${model === "generationModel" ? "generation" : "embedding"} model in the Book Harness settings first.`, 8000);
 			return null;
 		}
 		if (this.runner.hasRunningJob(book.id)) {
@@ -174,6 +180,23 @@ export class BookHarnessView extends ItemView {
 			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
 		});
 		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
+		this.markDirty();
+	}
+
+	/** Embedding endpoint and model, or null when they are not set up. */
+	private semantic(): { client: OllamaClient; model: string; store: IndexStorePort } | null {
+		const device = this.host.settings.device;
+		const base = normalizeEndpoint(device.endpoint);
+		return base !== null && device.embeddingModel !== "" ? { client: new OllamaClient(this.host.network, base), model: device.embeddingModel, store: this.host.indexStore } : null;
+	}
+
+	private async startEmbedding(vault: GuardedVault, book: Book, all: Chapter[], targets: Chapter[], semantic: { client: OllamaClient; model: string; store: IndexStorePort }): Promise<void> {
+		const now = () => new Date().toISOString();
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "embeddings.build", "build-meaning-index", targets, async (chapter, signal) => {
+			const added = await this.host.search.buildChapterVectors(vault, book, all, chapter, semantic, signal);
+			return { state: "done", message: added === 0 ? "Already up to date." : `${added} passage${added === 1 ? "" : "s"} embedded.` };
+		});
+		new Notice(`Indexed ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
 		this.markDirty();
 	}
 
@@ -304,16 +327,34 @@ export class BookHarnessView extends ItemView {
 			},
 			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
 			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
-			search: (query) => {
+			search: (query, meaning) => {
 				if (query.trim() === "") {
 					new Notice("Type a word or phrase to search for.", 8000);
 					return;
 				}
+				this.useMeaning = meaning;
+				const semantic = meaning ? this.semantic() : null;
 				run(
-					this.host.search.search(vault, book, chapters, query).then((outcome) => {
+					this.host.search.search(vault, book, chapters, query, 20, semantic).then((outcome) => {
 						this.lastSearch = outcome;
 					}),
 				);
+			},
+			buildMeaning: () => {
+				const ready = this.readyToSend(book, chapters, "embeddingModel");
+				const semantic = this.semantic();
+				if (ready === null || semantic === null) return;
+				new ConfirmModal(
+					this.app,
+					"Build the meaning index",
+					[
+						`The text of ${ready.targets.length} chapter${ready.targets.length === 1 ? "" : "s"} will be sent in passages to ${ready.base} using the embedding model "${this.host.settings.device.embeddingModel}". Only passages that are new or changed since the last build are sent.`,
+						"The result is stored on this device only, is not part of your book, and can be deleted at any time. Your chapters are not changed.",
+						"You can cancel while it runs.",
+					],
+					"Build",
+					() => void this.startEmbedding(vault, book, chapters, ready.targets, semantic).catch(fail),
+				).open();
 			},
 			openPassage: (result) => void this.openPassage(result),
 			closeEntity: () => {

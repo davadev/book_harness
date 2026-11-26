@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -265,8 +265,8 @@ describe("overview rendering", () => {
 	it("searches on Enter or the button only, and shows what was searched, the results and any chapters without notes", () => {
 		const a = actions();
 		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
-		const result = { ref: { bookId: "bk1", chapterId: "a", passageId: "p", sourceRevision: "r", start: 0, end: 5 }, chapter: "Chapter 1", notePath: "A/a.md", snippet: "…the Zorblax lamp…", score: 1, entities: ["Anna"], provenance: "manuscript" as const };
-		const search = { query: "zorblax", results: [result], passagesIndexed: 12, chaptersIndexed: 1, missingChapters: ["Chapter 2"] };
+		const result = { channels: { keyword: 1, meaning: null }, ref: { bookId: "bk1", chapterId: "a", passageId: "p", sourceRevision: "r", start: 0, end: 5 }, chapter: "Chapter 1", notePath: "A/a.md", snippet: "…the Zorblax lamp…", score: 1, entities: ["Anna"], provenance: "manuscript" as const };
+		const search = { query: "zorblax", results: [result], passagesIndexed: 12, chaptersIndexed: 1, missingChapters: ["Chapter 2"], meaning: { requested: false, used: false, status: null, note: null } };
 		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search), a);
 		const input = root.querySelector("input") as HTMLInputElement;
 		expect(input.value).toBe("zorblax");
@@ -279,16 +279,45 @@ describe("overview rendering", () => {
 		input.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
 		expect(a.search).not.toHaveBeenCalled();
 		input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-		expect(a.search).toHaveBeenLastCalledWith("lamp");
+		expect(a.search).toHaveBeenLastCalledWith("lamp", false);
 		click("Search");
 		expect(a.search).toHaveBeenCalledTimes(2);
 		(Array.from(root.querySelectorAll(".bh-result .bh-link"))[0] as HTMLButtonElement).click();
 		expect(a.openPassage).toHaveBeenCalledWith(result);
 	});
 
+	it("offers meaning search only when it can work, shows how fresh the index is, and labels how each hit was found", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const hit = (keyword: number | null, meaning: number | null) => ({ channels: { keyword, meaning }, ref: { bookId: "bk1", chapterId: "a", passageId: `p${keyword}${meaning}`, sourceRevision: "r", start: 0, end: 1 }, chapter: "Chapter 1", notePath: "A/a.md", snippet: "text", score: 1, entities: [], provenance: "manuscript" as const });
+		const search = { query: "q", results: [hit(1, 2), hit(null, 1), hit(3, null)], passagesIndexed: 3, chaptersIndexed: 1, missingChapters: [], meaning: { requested: true, used: true, status: { state: "partial" as const, indexed: 2, total: 3, builtWith: "e" }, note: "The meaning index covers 2 of 3 passages; the rest were searched by keyword only." } };
+		const status = { state: "partial" as const, indexed: 2, total: 3, builtWith: "e" };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search, { available: true, enabled: true, status }), a);
+		expect(text()).toContain("Meaning index: out of date (2 of 3 passages).");
+		expect(text()).toContain("Meaning results are included. The meaning index covers 2 of 3 passages");
+		expect(Array.from(root.querySelectorAll(".bh-result .bh-badge")).map((b) => b.textContent)).toEqual(["keyword and meaning", "meaning", "keyword"]);
+		const checkbox = root.querySelector('input[type="checkbox"]') as HTMLInputElement;
+		expect(checkbox.checked).toBe(true);
+		checkbox.checked = false;
+		click("Search");
+		expect(a.search).toHaveBeenLastCalledWith("q", false);
+		click("Build or update");
+		expect(a.buildMeaning).toHaveBeenCalled();
+		for (const [state, label, button] of [["current", "up to date", "Rebuild"], ["missing", "not built yet", "Build or update"], ["incompatible", "built with another model", "Build or update"]] as const) {
+			renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, null, { available: true, enabled: false, status: { state, indexed: 0, total: 1, builtWith: null } }), a);
+			expect(text()).toContain(`Meaning index: ${label}`);
+			click(button);
+		}
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, { ...search, meaning: { requested: true, used: false, status: null, note: "Meaning search was not used: offline." } }, { available: false, enabled: false, status: null }), a);
+		expect(text()).toContain("Meaning search was not used: offline.");
+		expect(root.querySelector('input[type="checkbox"]')).toBeNull();
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, { ...search, meaning: { requested: true, used: false, status: null, note: null } }, { available: true, enabled: false, status: null }), a);
+		expect(root.querySelector(".bh-search")?.textContent).not.toContain("Meaning index:");
+	});
+
 	it("says that finding nothing does not mean the idea is absent, and counts chapters in the singular and plural", () => {
 		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
-		const none = { query: "ghost", results: [], passagesIndexed: 3, chaptersIndexed: 2, missingChapters: [] };
+		const none = { query: "ghost", results: [], passagesIndexed: 3, chaptersIndexed: 2, missingChapters: [], meaning: { requested: false, used: false, status: null, note: null } };
 		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, none), actions());
 		expect(text()).toContain("in 2 chapters, up to date");
 		expect(text()).toContain("Nothing found for “ghost”. Words are matched exactly as written; this does not mean the idea is absent from the book.");

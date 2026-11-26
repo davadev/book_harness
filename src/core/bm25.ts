@@ -33,6 +33,11 @@ export class KeywordIndex {
 		return this.revisions.get(chapterId);
 	}
 
+	/** Every indexed passage, in chapter-then-reading order of insertion. */
+	passages(): IndexedPassage[] {
+		return [...this.docs.values()].map((d) => d.passage);
+	}
+
 	get size(): number {
 		return this.docs.size;
 	}

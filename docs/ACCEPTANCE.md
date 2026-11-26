@@ -42,8 +42,8 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 
 | ID | Scenario | Types | Phase | Status |
 |---|---|---|---|---|
-| AC-SR-1 | BM25 finds unique invented terminology; semantic retrieval finds a paraphrased passage; hybrid results carry valid references and linked entities/events. | U, I, R | 7 | In progress: BM25 part passes (search.test.ts); semantic and hybrid pending |
-| AC-SR-2 | Stale or missing embedding index disclosed; current keyword fallback works. | U, UI | 7 | Not started |
+| AC-SR-1 | BM25 finds unique invented terminology; semantic retrieval finds a paraphrased passage; hybrid results carry valid references and linked entities/events. | U, I, R | 7 | Passed (CI, scripted embeddings): invented term found by keyword, paraphrase found by meaning only; real-embedding evaluation (R) not run |
+| AC-SR-2 | Stale or missing embedding index disclosed; current keyword fallback works. | U, UI | 7 | Passed (CI) |
 | AC-AG-1 | Agent answers a cross-chapter question with real supporting passage links and correct entity context; missing/unresolved evidence acknowledged. | M, R, UI | 11 | Not started |
 | AC-AG-2 | Agent cannot edit manuscript or knowledge; tool-call limits and cancellation enforced; conversation persisted in book Markdown. | U, I, M | 11 | Not started |
 

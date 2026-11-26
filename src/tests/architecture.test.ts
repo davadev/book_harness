@@ -30,7 +30,8 @@ describe("architecture", () => {
 
 	it("writes to the vault only through the vault port (and the crash guard's own state file)", () => {
 		const WRITE = /app\.vault\.(modify|modifyBinary|create|createBinary|createFolder|process|delete|rename|trash|append)\(|fileManager\.(trashFile|renameFile)\(|adapter\.(write|writeBinary|append|remove|rename|mkdir|rmdir)\(|editor\.(replace\w*|setValue|setLine)\(/;
-		const allowed = new Set(["platform/vault-port.ts", "crashGuard.ts"]);
+		// Besides the vault port: the crash guard's own state file and derived, disposable index files in the plugin folder.
+		const allowed = new Set(["platform/vault-port.ts", "crashGuard.ts", "platform/index-store.ts"]);
 		const offenders = sources().filter((s) => !allowed.has(s.file) && WRITE.test(code(s.text))).map((s) => s.file);
 		expect(offenders).toEqual([]);
 	});
