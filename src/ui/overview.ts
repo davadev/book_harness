@@ -15,6 +15,9 @@ export interface BookActions {
 	planChapter(): void;
 	updateStats(): void;
 	summarize(): void;
+	proofread(): void;
+	decideEdits(proposalId: string, editIds: string[], decision: "accepted" | "rejected"): void;
+	applyProposal(proposalId: string): void;
 	addTodo(): void;
 	completeTodo(manualId: string): void;
 	cancelJob(jobId: string): void;
@@ -43,7 +46,7 @@ const JOB_LABEL: Record<JobRecord["state"], string> = {
 	dismissed: "",
 };
 
-const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries" };
+const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading" };
 
 function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-job" });
@@ -53,6 +56,33 @@ function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): voi
 	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
 	const label = job.state === "running" ? "Cancel" : "Dismiss";
 	box.createEl("button", { cls: "bh-button", text: label }).addEventListener("click", () => (job.state === "running" ? actions.cancelJob(job.id) : actions.dismissJob(job.id)));
+}
+
+function renderProposal(root: HTMLElement, entry: Overview["proposals"][number], actions: BookActions): void {
+	const { proposal, designation } = entry;
+	const box = root.createDiv({ cls: "bh-proposal" });
+	const open = proposal.edits.filter((e) => e.decision === "pending");
+	const accepted = proposal.edits.filter((e) => e.decision === "accepted");
+	box.createEl("strong", { text: `Suggested changes for ${designation}` });
+	box.createDiv({ cls: "bh-note", text: "Your chapter is not changed until you accept a change and apply it." });
+	for (const edit of proposal.edits.filter((e) => e.decision !== "rejected" && e.decision !== "applied")) {
+		const row = box.createDiv({ cls: "bh-edit" });
+		row.createSpan({ cls: "bh-context", text: `…${edit.before.slice(-24)}` });
+		row.createEl("del", { text: edit.original === "" ? "(nothing)" : edit.original });
+		row.createEl("ins", { text: edit.replacement === "" ? "(removed)" : edit.replacement });
+		row.createSpan({ cls: "bh-context", text: `${edit.after.slice(0, 24)}…` });
+		const state = { pending: "Not decided", accepted: "Accepted", conflict: "Could not be placed: the text changed", rejected: "", applied: "" }[edit.decision];
+		row.createSpan({ cls: "bh-badge", text: state });
+		const controls = row.createDiv({ cls: "bh-chapter-controls" });
+		if (edit.decision !== "conflict") {
+			controls.createEl("button", { cls: "bh-icon-button", text: "Accept", attr: { "aria-label": `Accept the change ${edit.original} to ${edit.replacement}` } }).addEventListener("click", () => actions.decideEdits(proposal.id, [edit.id], "accepted"));
+		}
+		controls.createEl("button", { cls: "bh-icon-button", text: "Reject", attr: { "aria-label": `Reject the change ${edit.original} to ${edit.replacement}` } }).addEventListener("click", () => actions.decideEdits(proposal.id, [edit.id], "rejected"));
+	}
+	const bulk = box.createDiv({ cls: "bh-actions" });
+	if (open.length > 1) bulk.createEl("button", { cls: "bh-button", text: `Accept all ${open.length} undecided changes` }).addEventListener("click", () => actions.decideEdits(proposal.id, open.map((e) => e.id), "accepted"));
+	if (open.length > 0) bulk.createEl("button", { cls: "bh-button", text: `Reject all ${open.length} undecided changes` }).addEventListener("click", () => actions.decideEdits(proposal.id, open.map((e) => e.id), "rejected"));
+	if (accepted.length > 0) bulk.createEl("button", { cls: "bh-button mod-cta", text: `Apply ${accepted.length} accepted change${accepted.length === 1 ? "" : "s"} to the chapter` }).addEventListener("click", () => actions.applyProposal(proposal.id));
 }
 
 function statsLine(stats: ChapterStats): string {
@@ -97,10 +127,12 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
+	bar.createEl("button", { cls: "bh-button", text: "Proofread chapters" }).addEventListener("click", () => bookActions.proofread());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
+	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });
 		box.createEl("h4", { text: `To do (${overview.todos.length})` });
@@ -136,6 +168,10 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 			const line = li.createDiv({ cls: "bh-note" });
 			line.createSpan({ text: row.summary.status === "stale" ? "Summary (out of date: the text, prompt or model changed) " : "Summary " });
 			line.createEl("button", { cls: "bh-link", text: "Open" }).addEventListener("click", () => bookActions.openNote(summaryPath));
+		}
+		if (row.proofread !== null && row.proofread.total > 0) {
+			const c = row.proofread;
+			li.createDiv({ cls: "bh-note", text: `Proofreading: ${c.reviewed} of ${c.total} paragraphs reviewed${c.waiting ? `, ${c.waiting} waiting for your decision` : ""}${c.pending ? `, ${c.pending} not checked yet` : ""}.` });
 		}
 		const controls = li.createDiv({ cls: "bh-chapter-controls" });
 		const select = controls.createEl("select", { cls: "bh-select dropdown", attr: { "aria-label": `Status of ${row.chapter.designation}` } });

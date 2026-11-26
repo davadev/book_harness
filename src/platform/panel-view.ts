@@ -7,9 +7,11 @@ import { buildOverview, orderToMove, resolveContext } from "../core/panel-model"
 import { addManualTodo, listManualTodos, setManualTodoDone } from "../core/manual-todos";
 import { findConflictCopies } from "../core/sync-conflicts";
 import { JobRunner, dismissJob, listJobs, presentJobs } from "../core/jobs";
-import { DiagnosticsLog } from "../core/ai/diagnostics";
+import type { DiagnosticsLog } from "../core/ai/diagnostics";
 import type { NetworkPort } from "../core/ai/network";
 import { OllamaClient, normalizeEndpoint } from "../core/ai/ollama";
+import { coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, settleCoverage, type CoverageView } from "../core/proofread";
+import { applyAccepted, decide, listProposals } from "../core/proposals";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
 import type { BookHarnessSettings } from "../settings/defaults";
 import { ConfirmModal } from "./confirm-modal";
@@ -102,10 +104,14 @@ export class BookHarnessView extends ItemView {
 			if (prompt) problems.push(...prompt.problems);
 			const summaries = new Map<string, { status: SummaryStatus; path: string | null }>();
 			if (book && prompt) for (const c of shown) summaries.set(c.id, await summaryStatus(vault, book, c, { promptId: prompt.prompt.id, model: this.host.settings.device.generationModel }));
+			const proposals = book ? await listProposals(vault, book) : { proposals: [], problems: [] };
+			problems.push(...proposals.problems);
+			const coverage = new Map<string, CoverageView>();
+			if (book) for (const c of shown) if (c.notePath !== null && vault.exists(c.notePath)) coverage.set(c.id, coverageView(await vault.read(c.notePath), await loadCoverage(vault, book, c.id)));
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -126,6 +132,21 @@ export class BookHarnessView extends ItemView {
 			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
 		});
 		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
+		this.markDirty();
+	}
+
+	private async startProofreading(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
+		const client = new OllamaClient(this.host.network, base);
+		const now = () => new Date().toISOString();
+		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+		const prompt = defaultProofreadPrompt();
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "proofread", "proofread-chapters", chapters, async (chapter, signal) => {
+			const r = await proofreadChapter(vault, book, chapter, { client, model, prompt, signal, diagnostics: this.host.diagnostics, now, sleep, random: platformRandom });
+			if (r.stale) return { state: "discarded", message: `${chapter.designation} changed while it was being proofread; nothing was recorded.` };
+			const parts = [`${r.proposed} paragraph${r.proposed === 1 ? "" : "s"} with suggestions`, `${r.unchanged} unchanged`, r.skippedReviewed ? `${r.skippedReviewed} already reviewed` : "", ...r.failed.map((f) => `skipped: ${f}`)].filter((x) => x !== "");
+			return { state: "done", message: parts.join("; ") };
+		});
+		new Notice(`Proofread ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
 		this.markDirty();
 	}
 
@@ -194,6 +215,55 @@ export class BookHarnessView extends ItemView {
 					() => void this.startSummaries(vault, book, targets, base, device.generationModel).catch(fail),
 				).open();
 			},
+			proofread: () => {
+				const device = this.host.settings.device;
+				const base = normalizeEndpoint(device.endpoint);
+				if (base === null || device.generationModel === "") {
+					new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
+					return;
+				}
+				if (this.runner.hasRunningJob(book.id)) {
+					new Notice("A job is already running for this book.", 8000);
+					return;
+				}
+				const targets = chapters.filter((c) => c.notePath !== null);
+				if (targets.length === 0) {
+					new Notice("No chapter has a manuscript note yet.", 8000);
+					return;
+				}
+				new ConfirmModal(
+					this.app,
+					"Proofread chapters",
+					[
+						`Each paragraph of ${targets.length} chapter${targets.length === 1 ? "" : "s"} that has not been reviewed yet will be sent, one at a time, to ${base} using the model "${device.generationModel}".`,
+						"Corrections are suggestions only. Your chapters change only when you accept a change and apply it. A paragraph the model cannot handle safely is left as written.",
+						"You can cancel while it runs.",
+					],
+					"Proofread",
+					() => void this.startProofreading(vault, book, targets, base, device.generationModel).catch(fail),
+				).open();
+			},
+			decideEdits: (proposalId, editIds, decision) =>
+				run(
+					(async () => {
+						const proposal = (await listProposals(vault, book)).proposals.find((p) => p.id === proposalId);
+						if (!proposal) throw new Error("That proposal no longer exists.");
+						const updated = await decide(vault, book, proposal, editIds, decision);
+						const chapter = find(updated.chapterId);
+						await settleCoverage(vault, book, chapter, [updated]);
+					})(),
+				),
+			applyProposal: (proposalId) =>
+				run(
+					(async () => {
+						const proposal = (await listProposals(vault, book)).proposals.find((p) => p.id === proposalId);
+						if (!proposal) throw new Error("That proposal no longer exists.");
+						const chapter = find(proposal.chapterId);
+						const result = await applyAccepted(vault, book, chapter, proposal);
+						await settleCoverage(vault, book, chapter, [result.proposal]);
+						new Notice(`Applied ${result.applied} change${result.applied === 1 ? "" : "s"}.${result.conflicts.length ? ` ${result.conflicts.length} could not be placed because the text changed; they were left for you.` : ""}`, 8000);
+					})(),
+				),
 			cancelJob: (id) => this.runner.cancel(id),
 			dismissJob: (id) =>
 				run(

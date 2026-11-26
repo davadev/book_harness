@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -144,6 +144,56 @@ describe("overview rendering", () => {
 		expect(a.dismissJob).toHaveBeenCalledWith("jb_interrupted");
 		expect(boxes[0]?.querySelector("button")?.textContent).toBe("Cancel");
 		expect(boxes[2]?.querySelector("button")?.textContent).toBe("Dismiss");
+	});
+
+	it("shows suggested changes with per-change and explicit bulk decisions, and applies only accepted ones", () => {
+		const a = actions();
+		const edit = (id: string, decision: "pending" | "accepted" | "conflict" | "rejected" | "applied", original: string, replacement: string) => ({ id, from: 0, to: 1, original, replacement, before: "The long sentence before ", after: " and then the rest of it", decision });
+		const proposal = { id: "pr_a", bookId: "bk1", chapterId: "a", origin: { action: "proofread" }, baseRevision: "r", createdAt: "t", edits: [edit("e1", "pending", "captian", "captain"), edit("e2", "pending", "teh", ""), edit("e3", "accepted", "", "new"), edit("e4", "conflict", "x", "y"), edit("e5", "rejected", "q", "r"), edit("e6", "applied", "s", "t")] };
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		renderOverview(root, ctx, buildOverview(book, [ch("a", "Chapter 1", 1, "A/a.md")], null, () => true, new Map(), [], [], [], new Map(), [proposal]), a);
+		const box = root.querySelector(".bh-proposal") as HTMLElement;
+		expect(box.textContent).toContain("Suggested changes for Chapter 1");
+		expect(box.textContent).toContain("Your chapter is not changed until you accept a change and apply it.");
+		expect(Array.from(box.querySelectorAll(".bh-edit")).map((e) => [e.querySelector("del")?.textContent, e.querySelector("ins")?.textContent])).toEqual([["captian", "captain"], ["teh", "(removed)"], ["(nothing)", "new"], ["x", "y"]]);
+		expect(box.textContent).toContain("Could not be placed: the text changed");
+		const label = (l: string) => box.querySelector(`button[aria-label="${l}"]`) as HTMLButtonElement;
+		label("Accept the change captian to captain").click();
+		expect(a.decideEdits).toHaveBeenLastCalledWith("pr_a", ["e1"], "accepted");
+		label("Reject the change teh to ").click();
+		expect(a.decideEdits).toHaveBeenLastCalledWith("pr_a", ["e2"], "rejected");
+		expect(box.querySelector('button[aria-label="Accept the change x to y"]')).toBeNull();
+		click("Accept all 2 undecided changes");
+		expect(a.decideEdits).toHaveBeenLastCalledWith("pr_a", ["e1", "e2"], "accepted");
+		click("Reject all 2 undecided changes");
+		expect(a.decideEdits).toHaveBeenLastCalledWith("pr_a", ["e1", "e2"], "rejected");
+		click("Apply 1 accepted change to the chapter");
+		expect(a.applyProposal).toHaveBeenCalledWith("pr_a");
+	});
+
+	it("offers no bulk buttons for a single undecided change and hides proposals that are fully decided", () => {
+		const a = actions();
+		const e = (id: string, decision: "pending" | "rejected" | "applied") => ({ id, from: 0, to: 1, original: "a", replacement: "b", before: "", after: "", decision });
+		const base = { bookId: "bk1", chapterId: "a", origin: { action: "proofread" }, baseRevision: "r", createdAt: "t" };
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const proposals = [{ ...base, id: "pr_1", edits: [e("e1", "pending")] }, { ...base, id: "pr_2", edits: [e("e1", "rejected"), e("e2", "applied")] }, { ...base, id: "pr_3", chapterId: "gone", edits: [e("e1", "pending")] }];
+		renderOverview(root, ctx, buildOverview(book, [ch("a", "Chapter 1", 1, "A/a.md")], null, () => true, new Map(), [], [], [], new Map(), proposals), a);
+		expect(root.querySelectorAll(".bh-proposal")).toHaveLength(2);
+		expect(text()).toContain("Suggested changes for Unknown chapter");
+		expect(text()).not.toContain("Accept all");
+		expect(text()).toContain("Reject all 1 undecided change");
+		expect(text()).not.toContain("Apply");
+	});
+
+	it("shows proofreading coverage per chapter and offers the action", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const cov = new Map([["a", { total: 5, reviewed: 3, waiting: 1, pending: 1 }], ["b", { total: 2, reviewed: 2, waiting: 0, pending: 0 }], ["c", { total: 0, reviewed: 0, waiting: 0, pending: 0 }]]);
+		renderOverview(root, ctx, buildOverview(book, [ch("a", "Chapter 1", 1, "A/a.md"), ch("b", "Chapter 2", 2, "A/b.md"), ch("c", "Chapter 3", 3, "A/c.md")], null, () => true, new Map(), [], [], [], new Map(), [], cov), a);
+		const notes = Array.from(root.querySelectorAll(".bh-chapter .bh-note")).map((n) => n.textContent).filter((t) => t?.startsWith("Proofreading"));
+		expect(notes).toEqual(["Proofreading: 3 of 5 paragraphs reviewed, 1 waiting for your decision, 1 not checked yet.", "Proofreading: 2 of 2 paragraphs reviewed."]);
+		click("Proofread chapters");
+		expect(a.proofread).toHaveBeenCalled();
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

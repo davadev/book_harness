@@ -40,7 +40,7 @@ async function setup() {
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
 	const runner = new JobRunner();
-	const host = { settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
+	const host = { settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
 	const view = new BookHarnessView({ app: fake.app } as never, runner, host);
 	(view as unknown as { app: unknown }).app = fake.app;
 	return { fake, vault, book, one, two, view, store: fake.store, runner, host };
@@ -460,6 +460,202 @@ describe("BookHarnessView edge cases", () => {
 		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Summarized 1 of 1 chapters."), { timeout: 3000 });
 		expect(host.network.request).toHaveBeenCalledTimes(2);
+	});
+
+	it("proofreads after confirmation, lets the author review and apply, and never touches the chapter before that", async () => {
+		const { fake, view, host, store } = await setup();
+		const prose = "The captian walked to the harbour at dawn.";
+		store.set("Book/one.md", prose);
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: "The captain walked to the harbour at dawn." }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		expect(document.body.textContent).toContain("Each paragraph of 1 chapter that has not been reviewed yet will be sent, one at a time, to http://h:11434");
+		expect(host.network.request).not.toHaveBeenCalled();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Suggested changes for Chapter 1"));
+		expect(store.get("Book/one.md")).toBe(prose);
+		expect(text(view)).toContain("Proofreading: 0 of 1 paragraphs reviewed, 1 waiting for your decision.");
+		expect(text(view)).toContain("1 paragraph with suggestions");
+		const edit = () => view.contentEl.querySelector(".bh-edit") as HTMLElement;
+		button(view, "Accept", edit()).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Apply 1 accepted change to the chapter"));
+		expect(store.get("Book/one.md")).toBe(prose);
+		button(view, "Apply 1 accepted change to the chapter").click();
+		await vi.waitFor(() => expect(store.get("Book/one.md")).toBe("The captain walked to the harbour at dawn."));
+		await vi.waitFor(() => expect(text(view)).toContain("Proofreading: 1 of 1 paragraphs reviewed."));
+		expect(text(view)).not.toContain("Suggested changes");
+		expect(Notice.instances.some((n) => n.message === "Applied 1 change.")).toBe(true);
+	});
+
+	it("rejecting a suggestion leaves the chapter alone and counts the paragraph as reviewed", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The captian walked.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: "The captain walked." }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Suggested changes"));
+		button(view, "Reject", view.contentEl.querySelector(".bh-edit") as HTMLElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofreading: 1 of 1 paragraphs reviewed."));
+		expect(store.get("Book/one.md")).toBe("The captian walked.");
+	});
+
+	it("supports bulk decisions and reports a proposal that vanished or text that moved on", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The captian walked.\n\nShe did'nt answer.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation((req?: { body?: string }) => {
+			const sent = JSON.parse(req?.body ?? "{}").messages.at(-1).content as string;
+			const fixed = sent.includes("captian") ? "The captain walked." : "She didn't answer.";
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: fixed }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Accept all 2 undecided changes"));
+		button(view, "Accept all 2 undecided changes").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Apply 2 accepted changes to the chapter"));
+		store.set("Book/one.md", "Totally different now.");
+		button(view, "Apply 2 accepted changes to the chapter").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Applied 0 changes. 2 could not be placed because the text changed; they were left for you."));
+		expect(store.get("Book/one.md")).toBe("Totally different now.");
+		await vi.waitFor(() => expect(text(view)).toContain("Could not be placed"));
+	});
+
+	it("tells the author when a proposal vanished before they decided or applied it", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The captian walked.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: "The captain walked." }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Suggested changes"));
+		const proposalKey = () => [...store.keys()].find((k) => k.includes("/proposals/"))!;
+		const saved = store.get(proposalKey())!;
+		button(view, "Accept", view.contentEl.querySelector(".bh-edit") as HTMLElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Apply 1 accepted change"));
+		const key = proposalKey();
+		store.delete(key);
+		button(view, "Apply 1 accepted change to the chapter").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That proposal no longer exists."));
+		store.set(key, saved);
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("Not decided"));
+		store.delete(key);
+		button(view, "Reject", view.contentEl.querySelector(".bh-edit") as HTMLElement).click();
+		await vi.waitFor(() => expect(Notice.instances.filter((n) => n.message === "That proposal no longer exists.")).toHaveLength(2));
+	});
+
+	it("discards a proofreading run when the chapter changed meanwhile", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The captian walked.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => {
+			store.set("Book/one.md", "The captian walked. And more.");
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: "The captain walked." }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("changed while it was being proofread; nothing was recorded."));
+		expect(text(view)).not.toContain("Suggested changes");
+	});
+
+	it("summarizes what proofreading found, including skipped paragraphs and already reviewed ones", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "Fine paragraph.\n\nAnother fine one.\n\nThird.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		let n = 0;
+		host.network.request.mockImplementation((req?: { body?: string }) => {
+			n++;
+			const sent = /<paragraph>\n([\s\S]*?)\n<\/paragraph>/.exec(JSON.parse(req?.body ?? "{}").messages.at(-1).content as string)?.[1] ?? "";
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: n === 2 ? "" : sent }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		for (let round = 0; round < 2; round++) {
+			button(view, "Proofread chapters").click();
+			Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+			await vi.waitFor(() => expect(Notice.instances.filter((x) => x.message === "Proofread 1 of 1 chapters.")).toHaveLength(round + 1));
+			if (round === 0) {
+				await vi.waitFor(() => expect(text(view)).toContain("2 unchanged; skipped: Paragraph 2: The corrected paragraph is empty."));
+				button(view, "Dismiss").click();
+				await vi.waitFor(() => expect(text(view)).not.toContain("Proofreading finished"));
+			}
+		}
+		await vi.waitFor(() => expect(text(view)).toContain("1 unchanged; 2 already reviewed"));
+	});
+
+	it("retries a dropped connection once while proofreading", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "Fine paragraph.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockRejectedValueOnce(new Error("blip")).mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ corrected: "Fine paragraph." }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Proofread 1 of 1 chapters."), { timeout: 3000 });
+		expect(host.network.request).toHaveBeenCalledTimes(2);
+	});
+
+	it("explains what is missing before proofreading and guards against a second job", async () => {
+		const { fake, view, host, store, runner } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		button(view, "Proofread chapters").click();
+		expect(Notice.instances.at(-1)?.message).toMatch(/Set the server address/);
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		vi.spyOn(runner, "hasRunningJob").mockReturnValueOnce(true);
+		button(view, "Proofread chapters").click();
+		expect(Notice.instances.at(-1)?.message).toBe("A job is already running for this book.");
+		for (const [p, t] of store) if (p.includes("/chapters/")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("No file yet"));
+		button(view, "Proofread chapters").click();
+		expect(Notice.instances.at(-1)?.message).toBe("No chapter has a manuscript note yet.");
+	});
+
+	it("reports a proofreading job that could not start and a proposal that no longer exists", async () => {
+		const { fake, view, host } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Proofread chapters"));
+		fake.appAny.vault.create = () => Promise.reject(new Error("disk full"));
+		button(view, "Proofread chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Proofread")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("disk full"));
 	});
 
 	it("reports a summary job that could not start", async () => {

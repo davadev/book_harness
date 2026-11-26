@@ -9,3 +9,12 @@ export interface VaultPort {
 	/** Paths of all Markdown files in the vault. */
 	markdownPaths(): string[];
 }
+
+/** What the platform provides to the guard only. Application code never sees this type: it gets a GuardedVault. */
+export interface RawVaultPort extends VaultPort {
+	/**
+	 * Replace text only if it is still exactly `expected`, keeping the author's cursor and undo where the note is open.
+	 * Reserved for the manuscript gate.
+	 */
+	writeAuthorized(path: string, expected: string, next: string): Promise<boolean>;
+}

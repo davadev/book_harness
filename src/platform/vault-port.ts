@@ -1,7 +1,7 @@
-import { TFile, normalizePath, type App } from "obsidian";
-import type { VaultPort } from "../core/ports";
+import { MarkdownView, TFile, normalizePath, type App } from "obsidian";
+import type { RawVaultPort } from "../core/ports";
 
-export class ObsidianVaultPort implements VaultPort {
+export class ObsidianVaultPort implements RawVaultPort {
 	constructor(private readonly app: App) {}
 
 	exists(path: string): boolean {
@@ -28,6 +28,26 @@ export class ObsidianVaultPort implements VaultPort {
 			return next;
 		});
 		return replaced;
+	}
+
+	/**
+	 * Apply an accepted change. If the note is open in an editor the edit goes through the editor as one change confined to
+	 * the differing middle part, so the author's cursor, scroll and undo history stay intact; otherwise the file is replaced
+	 * atomically. Either way nothing is written unless the text is still exactly what the proposal was checked against.
+	 */
+	async writeAuthorized(path: string, expected: string, next: string): Promise<boolean> {
+		const editor = this.app.workspace
+			.getLeavesOfType("markdown")
+			.map((l) => l.view)
+			.find((v): v is MarkdownView => v instanceof MarkdownView && v.file?.path === normalizePath(path))?.editor;
+		if (!editor) return this.replaceIfUnchanged(path, expected, next);
+		if (editor.getValue() !== expected) return false;
+		let prefix = 0;
+		while (prefix < expected.length && prefix < next.length && expected[prefix] === next[prefix]) prefix++;
+		let suffix = 0;
+		while (suffix < expected.length - prefix && suffix < next.length - prefix && expected[expected.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+		editor.replaceRange(next.slice(prefix, next.length - suffix), editor.offsetToPos(prefix), editor.offsetToPos(expected.length - suffix));
+		return true;
 	}
 
 	markdownPaths(): string[] {

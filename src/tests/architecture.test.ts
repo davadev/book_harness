@@ -42,6 +42,14 @@ describe("architecture", () => {
 		expect(offenders).toEqual([]);
 	});
 
+	it("mints manuscript write capabilities and writes manuscript text only in the proposal-apply code", () => {
+		const offenders = sources()
+			.filter((s) => !["core/proposals.ts", "core/guarded-vault.ts", "core/ports.ts", "platform/vault-port.ts"].includes(s.file) && /mintWriteCapability\(|\.writeManuscript\(|\.writeAuthorized\(/.test(code(s.text)))
+			.map((s) => s.file);
+		expect(offenders).toEqual([]);
+		expect(sources().filter((s) => !["core/guarded-vault.ts", "core/ports.ts", "platform/vault-port.ts"].includes(s.file) && /writeAuthorized\(/.test(code(s.text))).map((s) => s.file)).toEqual([]);
+	});
+
 	it("reaches the network only through the one adapter that implements the network port", () => {
 		const offenders = sources().filter((s) => s.file !== "platform/network.ts" && /\brequestUrl\b|\bfetch\(|XMLHttpRequest|WebSocket/.test(code(s.text))).map((s) => s.file);
 		expect(offenders).toEqual([]);

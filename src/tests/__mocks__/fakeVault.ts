@@ -1,8 +1,8 @@
 import type { RandomPort } from "../../core/ids";
-import type { VaultPort } from "../../core/ports";
+import type { RawVaultPort } from "../../core/ports";
 
 /** In-memory vault for core tests. `writes` records every mutation so tests can assert what was (not) touched. */
-export class FakeVault implements VaultPort {
+export class FakeVault implements RawVaultPort {
 	files = new Map<string, string>();
 	writes: string[] = [];
 
@@ -27,6 +27,13 @@ export class FakeVault implements VaultPort {
 	}
 
 	replaceIfUnchanged(path: string, expected: string, next: string): Promise<boolean> {
+		if (this.files.get(path) !== expected) return Promise.resolve(false);
+		this.files.set(path, next);
+		this.writes.push(path);
+		return Promise.resolve(true);
+	}
+
+	writeAuthorized(path: string, expected: string, next: string): Promise<boolean> {
 		if (this.files.get(path) !== expected) return Promise.resolve(false);
 		this.files.set(path, next);
 		this.writes.push(path);
