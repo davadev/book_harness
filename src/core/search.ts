@@ -47,6 +47,8 @@ export interface MeaningInfo {
 
 export interface SearchOutcome {
 	query: string;
+	/** What the search was narrowed to. */
+	filter: SearchFilter;
 	results: SearchResult[];
 	/** What the index covers right now, so the author can see how much was searched. */
 	passagesIndexed: number;
@@ -54,6 +56,12 @@ export interface SearchOutcome {
 	/** Chapters without a note are not searchable; they are named so a gap is not mistaken for "not found". */
 	missingChapters: string[];
 	meaning: MeaningInfo;
+}
+
+/** Narrow a search to one chapter and/or to passages that name one entity. */
+export interface SearchFilter {
+	chapterId?: string;
+	entityId?: string;
 }
 
 export interface Semantic {
@@ -132,7 +140,7 @@ export class BookSearch {
 		return expandPassage(graph, input, ref);
 	}
 
-	async search(vault: VaultPort, book: Book, chapters: readonly Chapter[], query: string, limit = 20, semantic: Semantic | null = null): Promise<SearchOutcome> {
+	async search(vault: VaultPort, book: Book, chapters: readonly Chapter[], query: string, limit = 20, semantic: Semantic | null = null, filter: SearchFilter = {}): Promise<SearchOutcome> {
 		const { index, withNotes, texts, missing } = await this.sync(vault, book, chapters);
 		const keyword = index.search(query, POOL);
 		const meaning: MeaningInfo = { requested: semantic !== null, used: false, status: null, note: null };
@@ -163,7 +171,9 @@ export class BookSearch {
 		const all = (await listAllEntities(vault, book)).entities;
 		const mentions = new Map<string, { names: Map<string, string>; found: ReturnType<typeof findOccurrences> }>();
 		const results: SearchResult[] = [];
-		for (const h of ranked.slice(0, limit)) {
+		for (const h of ranked) {
+			if (results.length >= limit) break;
+			if (filter.chapterId !== undefined && h.passage.chapterId !== filter.chapterId) continue;
 			const chapter = withNotes.find((c) => c.id === h.passage.chapterId) as Chapter;
 			let m = mentions.get(chapter.id);
 			if (!m) {
@@ -174,10 +184,12 @@ export class BookSearch {
 				mentions.set(chapter.id, m);
 			}
 			const names = m.names;
-			const named = [...new Set(m.found.filter((o) => o.from >= h.passage.start && o.to <= h.passage.end).map((o) => names.get(o.entityId) as string))];
+			const here = m.found.filter((o) => o.from >= h.passage.start && o.to <= h.passage.end);
+			if (filter.entityId !== undefined && !here.some((o) => o.entityId === filter.entityId)) continue;
+			const named = [...new Set(here.map((o) => names.get(o.entityId) as string))];
 			results.push({ ref: refOf(book, h.passage), chapter: chapter.designation, notePath: chapter.notePath as string, snippet: snippet(h.passage.text, h.matched), score: h.score, entities: named, provenance: "manuscript", channels: { keyword: h.ranks[0], meaning: h.ranks[1] } });
 		}
-		return { query, results, passagesIndexed: index.size, chaptersIndexed: withNotes.length, missingChapters: missing.map((c) => c.designation), meaning };
+		return { query, filter, results, passagesIndexed: index.size, chaptersIndexed: withNotes.length, missingChapters: missing.map((c) => c.designation), meaning };
 	}
 }
 

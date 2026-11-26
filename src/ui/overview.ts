@@ -1,3 +1,4 @@
+import type { SearchFilter } from "../core/search";
 import type { Place } from "../core/agent/consistency";
 import type { RelationCandidate } from "../core/temporal/events";
 import type { TranslationRow } from "../core/translation/overview";
@@ -32,7 +33,7 @@ export interface BookActions {
 	mergeDuplicate(fromId: string, intoId: string): void;
 	keepDistinct(aId: string, bId: string): void;
 	closeEntity(): void;
-	search(query: string, meaning: boolean): void;
+	search(query: string, meaning: boolean, filter: SearchFilter): void;
 	buildMeaning(): void;
 	openPassage(result: SearchResult): void;
 	showContext(result: SearchResult): void;
@@ -120,7 +121,15 @@ function renderSearch(root: HTMLElement, overview: Overview, actions: BookAction
 		box2.checked = overview.meaning.enabled;
 		label.createSpan({ text: " Also search by meaning (sends your query to your model server)" });
 	}
-	const go = () => actions.search(input.value, box2?.checked ?? false);
+	const chapterSelect = box.createEl("select", { cls: "bh-select", attr: { "aria-label": "Search only in one chapter" } });
+	chapterSelect.createEl("option", { text: "Whole book", value: "" });
+	for (const row of overview.rows) chapterSelect.createEl("option", { text: row.chapter.designation, value: row.chapter.id });
+	chapterSelect.value = overview.search?.filter.chapterId ?? "";
+	const entitySelect = box.createEl("select", { cls: "bh-select", attr: { "aria-label": "Only passages that name one entity" } });
+	entitySelect.createEl("option", { text: "Any passage", value: "" });
+	for (const e of overview.entities) entitySelect.createEl("option", { text: `Names ${e.name}`, value: e.id });
+	entitySelect.value = overview.search?.filter.entityId ?? "";
+	const go = () => actions.search(input.value, box2?.checked ?? false, { ...(chapterSelect.value === "" ? {} : { chapterId: chapterSelect.value }), ...(entitySelect.value === "" ? {} : { entityId: entitySelect.value }) });
 	form.createEl("button", { cls: "bh-button", text: "Search" }).addEventListener("click", go);
 	// Searching happens on Enter or the button, never on every keystroke: the field keeps focus and the phone keyboard stays open.
 	input.addEventListener("keydown", (e) => {

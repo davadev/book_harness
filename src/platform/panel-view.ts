@@ -430,7 +430,7 @@ export class BookHarnessView extends ItemView {
 			},
 			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
 			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
-			search: (query, meaning) => {
+			search: (query, meaning, filter) => {
 				if (query.trim() === "") {
 					new Notice("Type a word or phrase to search for.", 8000);
 					return;
@@ -439,7 +439,7 @@ export class BookHarnessView extends ItemView {
 				this.contexts.clear();
 				const semantic = meaning ? this.semantic() : null;
 				run(
-					this.host.search.search(vault, book, chapters, query, 20, semantic).then((outcome) => {
+					this.host.search.search(vault, book, chapters, query, 20, semantic, filter).then((outcome) => {
 						this.lastSearch = outcome;
 					}),
 				);

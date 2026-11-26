@@ -119,6 +119,25 @@ describe("book search", () => {
 		expect(first.snippet).toContain("Zorblax");
 	});
 
+	it("narrows a search to one chapter, or to passages that name one entity, and says what it was narrowed to", async () => {
+		const { vault, a, one, two, rnd } = await setup();
+		const marlowe = await createEntity(vault, a, [], { type: "character", name: "Philip Marlowe" }, rnd);
+		const search = new BookSearch();
+		const all = await search.search(vault, a, [one, two], "zorblax");
+		expect(all.results).toHaveLength(2);
+		const inTwo = await search.search(vault, a, [one, two], "zorblax", 20, null, { chapterId: two.id });
+		expect(inTwo.results.map((r) => r.chapter)).toEqual(["Chapter 2"]);
+		expect(inTwo.filter).toEqual({ chapterId: two.id });
+		const { linkOccurrence } = await import("../core/occurrences");
+		await linkOccurrence(vault, a, one.id, "Philip Marlowe met the Zorblax at the harbour.", marlowe.id, 0, 14);
+		const named = await search.search(vault, a, [one, two], "zorblax", 20, null, { entityId: marlowe.id });
+		expect(named.results.map((r) => [r.chapter, r.entities])).toEqual([["Chapter 1", ["Philip Marlowe"]]]);
+		const none = await search.search(vault, a, [one, two], "zorblax", 20, null, { entityId: marlowe.id, chapterId: two.id });
+		expect(none.results).toEqual([]);
+		const one1 = await search.search(vault, a, [one, two], "zorblax", 1);
+		expect(one1.results).toHaveLength(1);
+	});
+
 	it("reads a chapter's known entities once even when several passages match", async () => {
 		const { raw, vault, a, one, two } = await setup();
 		raw.files.set("A/one.md", `${para(60, "Zorblax")}.\n\n${para(60, "Zorblax")} again.\n\n${para(60, "Zorblax")} third.`);

@@ -1033,7 +1033,7 @@ describe("BookHarnessView edge cases", () => {
 		await view.onOpen();
 		await vi.waitFor(() => expect(text(view)).toContain("Chapter 2"));
 		fake.appAny.vault.process = () => Promise.reject("odd");
-		const sel = view.contentEl.querySelector("select") as HTMLSelectElement;
+		const sel = view.contentEl.querySelector('select[aria-label^="Status of"]') as HTMLSelectElement;
 		sel.value = "finalized";
 		sel.dispatchEvent(new Event("change"));
 		await vi.waitFor(() => expect(Notice.instances.some((n) => n.message === "odd")).toBe(true));
