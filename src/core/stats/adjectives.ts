@@ -4,7 +4,7 @@
  * non-adjectives. Czech and Slovak have no usable heuristic (their adjective endings are shared with nouns and verbs), so
  * those books get no guesses rather than wrong ones.
  */
-export type AdjectiveSupport = { mode: "heuristic"; note: string } | { mode: "unavailable"; note: string };
+export type AdjectiveSupport = { mode: "heuristic"; note: string } | { mode: "unavailable"; note: string } | { mode: "model"; note: string };
 
 const EN_COMMON = "able bad big black blue bold bright broad brown calm cold common dark dead deep dim dry dull early easy empty faint fair false far fast fat fine firm flat fresh full glad good grand grave gray great green grey hard heavy high hollow hot huge kind large last late lean light little long loud low mad main near neat new nice odd old pale plain poor proud pure quick quiet rare raw red rich rough round sad safe same sharp short shy sick silent slow small smooth soft sour strange strong sure sweet tall thick thin tired true warm weak wet white wide wild wise wrong young";
 const DE_COMMON = "alt arm blass blau böse breit dick dunkel dünn eng fern fest fremd frisch froh gelb glatt grau groß grün gut hart heiß hell hoch jung kalt klar klein kurz lang laut leer leicht leise lieb nah neu nett rau rot ruhig sanft scharf schlecht schmal schnell schwach schwarz schwer schön stark still stumm süß tief tot treu trocken warm weich weiß weit wild zart";

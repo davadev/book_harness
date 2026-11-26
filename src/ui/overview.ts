@@ -48,6 +48,7 @@ export interface BookActions {
 	addEvent(): void;
 	exportEpub(language: string | null): void;
 	toggleStatistics(): void;
+	classifyAdjectives(): void;
 	checkConsistency(entityId: string): void;
 	decideFinding(entityId: string, findingId: string, decision: "open" | "mistake" | "intended" | "not-a-conflict"): void;
 	openPlace(place: Place): void;
@@ -431,9 +432,11 @@ function renderStatistics(root: HTMLElement, stats: BookStatistics, actions: Boo
 		li.createSpan({ text: `“${p.phrase}”: ${p.count} times ` });
 		occurrenceButtons(li, p.phrase, p.occurrences, p.count, actions);
 	}
-	box.createEl("h5", { text: stats.adjectives.support.mode === "heuristic" ? "Adjectives (a guess)" : "Adjectives" });
+	const mode = stats.adjectives.support.mode;
+	box.createEl("h5", { text: mode === "heuristic" ? "Adjectives (a guess)" : mode === "model" ? "Adjectives (chosen by a model)" : "Adjectives" });
 	box.createDiv({ cls: "bh-note", text: stats.adjectives.support.note });
-	if (stats.adjectives.support.mode === "heuristic") wordRows(box, stats.adjectives.rows, actions);
+	if (mode !== "unavailable") wordRows(box, stats.adjectives.rows, actions);
+	box.createEl("button", { cls: "bh-button", text: mode === "model" ? "Ask the model again" : "Ask a model which words are adjectives" }).addEventListener("click", () => actions.classifyAdjectives());
 }
 
 function statsLine(stats: ChapterStats): string {

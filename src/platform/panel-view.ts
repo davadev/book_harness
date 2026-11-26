@@ -40,6 +40,8 @@ import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { loadAnswers, retireAnswer, saveAnswer, type SavedAnswer } from "../core/agent/chats";
 import { checkConsistency, decideFinding, loadFindings, needsSecondLook, recordFindings, type Place } from "../core/agent/consistency";
+import { classifyAdjectives } from "../core/stats/adjective-model";
+import { contextAround } from "../core/synonyms";
 import { askBook, chronologyText, gatherEvidence, type Citation } from "../core/agent/ask";
 import { acceptCandidate, candidatesAreCurrent, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
@@ -620,6 +622,27 @@ export class BookHarnessView extends ItemView {
 			},
 			decideFinding: (entityId, findingId, decision) => run(entities().then((all) => decideFinding(vault, book, all.find((e) => e.id === entityId) as Entity, findingId, decision, chapters, (c) => vault.read(c.notePath as string)))),
 			openPlace: (p) => void this.openPlace(p),
+			classifyAdjectives: () => {
+				const current = this.statistics?.bookId === book.id ? this.statistics.data : null;
+				if (current === null) return;
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device } = ready;
+				new ConfirmModal(this.app, "Ask which words are adjectives", [`The ${current.frequent.length} most used words, each with one sentence it appears in, will be sent to ${base} using the model "${device.generationModel}".`, "The model chooses among those words only. It can be wrong; the result is labelled as the model's choice. Your chapters are not changed."], "Ask", () => {
+					void (async () => {
+						const candidates = [];
+						for (const row of current.frequent) {
+							const o = row.occurrences[0];
+							const path = (chapters.find((c) => c.id === o.chapterId) as Chapter).notePath;
+							candidates.push({ word: row.word, sentence: path !== null && vault.exists(path) ? contextAround(await vault.read(path), o.start, o.end).sentence : row.word });
+						}
+						const now = () => new Date().toISOString();
+						const r = await classifyAdjectives({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, book.primaryLanguage, candidates);
+						const rows = current.frequent.filter((w) => r.adjectives.has(w.word));
+						this.statistics = { bookId: book.id, data: { ...current, adjectives: { support: { mode: "model", note: `Chosen by a language model from the ${current.frequent.length} most used words, so it can be wrong and it cannot see less frequent words.${r.ignored > 0 ? ` ${r.ignored} answer(s) that were not among the words were ignored.` : ""}` }, rows } } };
+					})().catch(fail).finally(() => this.markDirty());
+				}).open();
+			},
 			toggleStatistics: () => {
 				if (this.statistics?.bookId === book.id) {
 					this.statistics = null;

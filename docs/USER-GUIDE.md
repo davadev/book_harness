@@ -27,7 +27,7 @@ What we measured with real local models is in `docs/evals/`. Short version: summ
 | Panel button | What it does | Model? |
 |---|---|---|
 | Update word counts | Counts words per chapter; marks counts out of date when text changes | no |
-| Show statistics | Most used words, words clustered in a short stretch, repeated phrases, sentence lengths, a labelled adjective guess (English and German only); every figure opens the place in your chapter | no |
+| Show statistics | Most used words, words clustered in a short stretch, repeated phrases, sentence lengths, a labelled adjective guess (English and German only), or a model's choice of adjectives if you ask for it (needed for Czech and Slovak); every figure opens the place in your chapter | no |
 | Search | Keyword search of the whole book; optionally also by meaning (needs a one-time **Build** of a local index on this device) | meaning only |
 | Ask the book | Answers a question from passages it found; shows the quotes; quotes not in the text are removed; says "not answered" when the book does not say | yes |
 | Summarize chapters | One summary note per chapter, marked out of date when the chapter changes | yes |

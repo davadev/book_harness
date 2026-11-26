@@ -1624,3 +1624,44 @@ describe("BookHarnessView language editions", () => {
 		expect([...written.keys()][0]).toMatch(/Book-de-\d{4}-\d\d-\d\d\.epub$/);
 	});
 });
+
+describe("BookHarnessView model adjectives", () => {
+	it("asks after confirmation, then shows the model's choice labelled as such", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "Dark lamp, dark lamp, dark lamp. The lamp burned.");
+		store.set("Book/two.md", "A dark night.");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockResolvedValue({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ adjectives: ["dark", "ghost"] }) } }) });
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Show statistics"));
+		button(view, "Show statistics").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Statistics ("));
+		store.delete("Book/two.md"); // a chapter whose note went away is simply asked about by the word alone
+		button(view, "Ask a model which words are adjectives").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Ask which words are adjectives"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		(Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === "Ask").at(-1) as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Adjectives (chosen by a model)"));
+		expect(text(view)).toContain("1 answer(s) that were not among the words were ignored.");
+		expect(view.contentEl.querySelector(".bh-statistics")?.textContent).toMatch(/dark: 4/);
+		host.network.request.mockResolvedValue({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ adjectives: ["dark"] }) } }) });
+		button(view, "Ask the model again").click();
+		(Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === "Ask").at(-1) as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("were ignored"));
+		// not offered a model call without a server, or before the statistics are shown
+		host.settings.device = { endpoint: "", generationModel: "", embeddingModel: "" };
+		button(view, "Ask the model again").click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
+		button(view, "Hide statistics").click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Statistics ("));
+	});
+	it("ignores the request when the statistics are not shown", async () => {
+		const { fake, view } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Show statistics"));
+		const actions = (view as unknown as { actions: (c: unknown[]) => { forBook: (b: unknown) => { classifyAdjectives(): void } } }).actions([]);
+		expect(() => actions.forBook({ id: "none", folder: "Book", title: "t", primaryLanguage: "en", targetLanguages: [], completion: { chapterStatus: "finalized" } }).classifyAdjectives()).not.toThrow();
+	});
+});
