@@ -1472,6 +1472,34 @@ describe("BookHarnessView event suggestions", () => {
 		(view.contentEl.querySelector('button[aria-label="Reject: Event: Door opens"]') as HTMLButtonElement).click();
 		await vi.waitFor(() => expect(text(view)).not.toContain("Suggested events"));
 	});
+	it("finds the dates a chapter states without any model, and offers them for acceptance", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "It was Tuesday the eleventh of March, 2091, and the lamp was lit.");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find dates in chapters"));
+		button(view, "Find dates in chapters").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Found 1 date(s) stated in the text. Review them under Suggested events."));
+		await vi.waitFor(() => expect(text(view)).toContain("happens in 2091-03-11"));
+		expect(host.network.request).not.toHaveBeenCalled();
+		button(view, "Find dates in chapters").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("No new dates found in the text."));
+		(view.contentEl.querySelector('button[aria-label^="Accept: It was Tuesday"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Timeline (1 event"));
+		expect(host.network.request).not.toHaveBeenCalled();
+	});
+
+	it("says so when no chapter has a manuscript note to look for dates in", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find dates in chapters"));
+		for (const [p, t] of store) if (p.includes("/chapters/")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("No file yet"));
+		button(view, "Find dates in chapters").click();
+		expect(Notice.instances.at(-1)?.message).toBe("No chapter has a manuscript note yet.");
+	});
 	it("says when the chapter changed while looking, and when the server is not set up", async () => {
 		const { fake, view, host, store } = await setup();
 		store.set("Book/one.md", "The lamp went out and the door opened.");

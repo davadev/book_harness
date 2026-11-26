@@ -4,7 +4,7 @@ import { addChapter } from "../core/chapters";
 import { GuardedVault } from "../core/guarded-vault";
 import type { NetRequest, NetworkPort } from "../core/ai/network";
 import { OllamaClient } from "../core/ai/ollama";
-import { acceptCandidate, candidatesAreCurrent, candidatesPath, EVENTS_PROMPT, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
+import { acceptCandidate, candidatesAreCurrent, candidatesPath, dateCandidates, EVENTS_PROMPT, findDatesInChapter, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { buildTimeline, loadTimeline } from "../core/temporal/timeline";
 import { FakeVault, counterRandom } from "./__mocks__/fakeVault";
 
@@ -72,7 +72,7 @@ describe("finding events", () => {
 		const { vault, book, chapter, deps } = await setup();
 		const odd = { events: "none", relations: [1, null, { kind: "before" }, { kind: 5, a: 5 }] };
 		const r = await findEvents(vault, book, chapter, deps(model([odd, odd])));
-		expect(r).toMatchObject({ events: 0, relations: 0 });
+		expect(r).toMatchObject({ events: 0, relations: 1 }); // the year the text states, found by code
 		const clean = { events: [{ label: "Lamp goes out", quote: "The lamp went out at eleven" }, { label: "Door opens", quote: "The door opened at the same moment" }], relations: [] };
 		const fixed = await findEvents(vault, book, chapter, deps(model(["nonsense", clean])));
 		expect(fixed.events).toBe(2);
@@ -173,5 +173,80 @@ describe("event candidate records", () => {
 		expect(c.decided).toEqual({ a: "accepted" });
 		raw.replaceIfUnchanged = () => Promise.resolve(false);
 		await expect(rejectCandidate(vault, book, chapter, "a")).rejects.toThrow(/changed on another device/);
+	});
+});
+
+describe("dates found by code", () => {
+	const DATED = "It was Tuesday the eleventh of March, 2091, ten past ten in the morning. Later the lamp went out.";
+
+	it("offers the stated dates with no model call, keeps decisions, and replaces stale model suggestions", async () => {
+		const { raw, vault, book, chapter } = await setup();
+		raw.files.set("Book/one.md", DATED);
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(1);
+		let c = (await loadCandidates(vault, book, chapter.id))!;
+		expect(c.relations).toMatchObject([{ kind: "date", date: "2091-03-11", quote: "It was Tuesday the eleventh of March, 2091, ten past ten in the morning." }]);
+		expect(c.events).toEqual([]);
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(0);
+		await rejectCandidate(vault, book, chapter, c.relations[0]!.id);
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(0);
+		c = (await loadCandidates(vault, book, chapter.id))!;
+		expect(c.relations).toHaveLength(1);
+		expect(c.decided[c.relations[0]!.id]).toBe("rejected");
+		// suggestions made for older text are not kept
+		const stale = { ...c, sourceRevision: "old", events: [{ id: "x", label: "Old", quote: "gone" }], relations: [] };
+		raw.files.set(candidatesPath(book, chapter.id), raw.files.get(candidatesPath(book, chapter.id))!.replace(/```bh-records\n[\s\S]*?\n```/, `\`\`\`bh-records\n${JSON.stringify(stale)}\n\`\`\``));
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(0);
+		expect((await loadCandidates(vault, book, chapter.id))!.events).toEqual([]);
+	});
+
+	it("keeps current model suggestions beside the dates, writes nothing when there is nothing to offer, and refuses a planned chapter", async () => {
+		const { raw, vault, book, chapter, rnd, deps } = await setup();
+		raw.files.set("Book/one.md", "The lamp went out.");
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(0);
+		expect(raw.files.has(candidatesPath(book, chapter.id))).toBe(false);
+		raw.files.set("Book/one.md", `${TEXT} It was the fourteenth of March, 2091.`);
+		await findEvents(vault, book, chapter, deps(model([REPLY, REPLY])));
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(0);
+		const c = (await loadCandidates(vault, book, chapter.id))!;
+		expect(c.events).toHaveLength(4);
+		expect(c.relations.map((r) => r.kind)).toEqual(["after_by", "date", "same_time", "date"]);
+		raw.files.set("Book/one.md", `${TEXT} It was the fourteenth of March, 2091. And 5 May 2092.`);
+		// the text changed, so the model's suggestions for the old text are dropped and every stated date is offered again
+		expect(await findDatesInChapter(vault, book, chapter)).toBe(3);
+		expect((await loadCandidates(vault, book, chapter.id))!.events).toEqual([]);
+		const planned = await addChapter(vault, book, [chapter], { designation: "Chapter 2" }, rnd);
+		await expect(findDatesInChapter(vault, book, planned)).rejects.toThrow(/no manuscript note/);
+	});
+
+	it("shortens a long sentence into a label, and an accepted date becomes a dated event on the timeline", async () => {
+		const { raw, vault, book, chapter, rnd } = await setup();
+		const long = `${"A very long sentence that keeps going ".repeat(4)}until the eleventh of March, 2091.`;
+		raw.files.set("Book/one.md", long);
+		const [candidate] = dateCandidates(long);
+		expect(candidate!.a.endsWith("…")).toBe(true);
+		expect(candidate!.a.length).toBeLessThanOrEqual(82);
+		expect(candidate!.quote).toBe(long);
+		await findDatesInChapter(vault, book, chapter);
+		const id = (await loadCandidates(vault, book, chapter.id))!.relations[0]!.id;
+		await acceptCandidate(vault, book, chapter, id, rnd);
+		const tl = await loadTimeline(vault, book);
+		const view = buildTimeline(tl.events, tl.constraints, [chapter]);
+		expect(view.world[0]).toMatchObject({ when: "2091-03-11", definite: false });
+	});
+
+	it("carries the weekday warning into the candidate", async () => {
+		const { raw, vault, book, chapter } = await setup();
+		raw.files.set("Book/one.md", "Friday, the fourteenth of March, 2091, began badly.");
+		await findDatesInChapter(vault, book, chapter);
+		expect((await loadCandidates(vault, book, chapter.id))!.relations[0]!.warning).toContain("is a Wednesday");
+	});
+
+	it("adds the stated dates when a model reads the chapter, and never duplicates one the model also found", async () => {
+		const { raw, vault, book, chapter, deps } = await setup();
+		raw.files.set("Book/one.md", DATED);
+		const reply = { events: [{ label: "Lamp goes out", quote: "the lamp went out" }], relations: [] };
+		const r = await findEvents(vault, book, chapter, deps(model([reply, reply])));
+		expect(r).toMatchObject({ events: 1, relations: 1 });
+		expect((await loadCandidates(vault, book, chapter.id))!.relations[0]).toMatchObject({ kind: "date", date: "2091-03-11" });
 	});
 });

@@ -10,6 +10,7 @@ import type { OllamaClient } from "../ai/ollama";
 import { effectivePrompt, type BuiltinPrompt } from "../ai/prompts";
 import { runStructured, type StructuredTask } from "../ai/structured";
 import { CalendarError, parseDuration } from "./calendar";
+import { findDates } from "./dates";
 import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, loadTimeline, parseCivil, type TimelineEvent } from "./timeline";
 
 /**
@@ -46,6 +47,8 @@ export interface RelationCandidate {
 	duration: string;
 	date: string;
 	quote: string;
+	/** Something the author should know before accepting, found by code (for example a weekday that does not match the date). */
+	warning?: string;
 }
 
 export interface Candidates {
@@ -169,6 +172,38 @@ export interface EventsReport {
 
 const idOf = (...parts: string[]): string => `ec_${fingerprint({ key: parts.join("\u0001") }).slice(3, 15)}`;
 
+/** Dates the text states outright, found by code: each becomes a candidate event "on that date" that the author can accept. */
+export function dateCandidates(body: string): RelationCandidate[] {
+	return findDates(body).map(({ date, quote, warning }) => {
+		const label = quote.length <= 80 ? quote : `${quote.slice(0, 80).replace(/\s+\S*$/, "")}…`;
+		return { id: idOf("date", labelKey(label), date, ""), kind: "date", a: label, b: "", duration: "", date, quote, ...(warning === undefined ? {} : { warning }) };
+	});
+}
+
+/** A stated date that is not already offered, by id, or given by someone else (or more precisely) for the same words. */
+function newDates(found: readonly RelationCandidate[], existing: readonly RelationCandidate[]): RelationCandidate[] {
+	const overlap = (a: string, b: string): boolean => squash(a).includes(squash(b)) || squash(b).includes(squash(a));
+	return found.filter((c) => !existing.some((r) => r.id === c.id || (r.kind === "date" && r.date.startsWith(c.date) && overlap(r.quote, c.quote))));
+}
+
+/**
+ * Offer the dates a chapter states, without any model: works offline and sends nothing anywhere. Keeps the author's earlier
+ * decisions, and keeps model suggestions only while they still match the chapter text.
+ */
+export async function findDatesInChapter(vault: VaultPort, book: Book, chapter: Chapter): Promise<number> {
+	if (chapter.notePath === null) throw new Error(`${chapter.designation} has no manuscript note.`);
+	const text = await vault.read(chapter.notePath);
+	const found = dateCandidates(bodyOf(text).replace(/\r\n/g, "\n"));
+	const before = await loadCandidates(vault, book, chapter.id);
+	if (found.length === 0 && !before) return 0;
+	const current = before !== null && before.sourceRevision === revisionOf(text);
+	const decided = before?.decided ?? {};
+	const kept = current ? before.relations : [];
+	const added = newDates(found, kept).filter((c) => decided[c.id] === undefined);
+	await saveCandidates(vault, book, chapter, { chapterId: chapter.id, sourceRevision: revisionOf(text), events: current ? before.events : [], relations: [...kept, ...added], decided });
+	return added.length;
+}
+
 /** Read a chapter for events. Replaces the undecided candidates of this chapter; what the author decided is remembered. */
 export async function findEvents(vault: VaultPort, book: Book, chapter: Chapter, deps: EventsDeps): Promise<EventsReport> {
 	if (chapter.notePath === null) throw new Error(`${chapter.designation} has no manuscript note.`);
@@ -198,6 +233,7 @@ export async function findEvents(vault: VaultPort, book: Book, chapter: Chapter,
 		}
 		issues.push(...r.issues);
 	}
+	for (const c of newDates(dateCandidates(body), [...relations.values()])) relations.set(c.id, c);
 	// The chapter may have changed while the model worked: then nothing from this run may be recorded against it.
 	if ((await vault.read(chapter.notePath)) !== text) return { kind: "discarded-stale", events: 0, relations: 0, dropped: 0, issues: [] };
 	const before = await loadCandidates(vault, book, chapter.id);

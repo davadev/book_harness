@@ -53,6 +53,7 @@ export interface BookActions {
 	decideFinding(entityId: string, findingId: string, decision: "open" | "mistake" | "intended" | "not-a-conflict"): void;
 	openPlace(place: Place): void;
 	findEvents(): void;
+	findDates(): void;
 	acceptCandidate(chapterId: string, id: string): void;
 	rejectCandidate(chapterId: string, id: string): void;
 	translate(language: string): void;
@@ -334,19 +335,20 @@ function describeRelation(r: RelationCandidate): string {
 function renderCandidates(root: HTMLElement, overview: Overview, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-candidates" });
 	box.createEl("h4", { text: "Suggested events" });
-	box.createDiv({ cls: "bh-note", text: "A model suggested these from your chapters. Nothing is on your timeline until you accept it, and each suggestion shows the words of the chapter it comes from." });
+	box.createDiv({ cls: "bh-note", text: "A model suggested these from your chapters, or code found them as dates your text states. Nothing is on your timeline until you accept it, and each suggestion shows the words of the chapter it comes from." });
 	for (const entry of overview.eventCandidates) {
 		box.createEl("h5", { text: entry.designation });
 		if (!entry.current) box.createDiv({ cls: "bh-callout", text: "This chapter changed since these were found. They can be rejected, but not accepted: find events again." });
 		const list = box.createEl("ul");
-		const row = (title: string, quote: string, id: string) => {
+		const row = (title: string, quote: string, id: string, warning?: string) => {
 			const li = list.createEl("li");
 			li.createSpan({ text: `${title} (the text says: “${quote}”) ` });
+			if (warning) li.createDiv({ cls: "bh-callout", text: warning });
 			if (entry.current) li.createEl("button", { cls: "bh-icon-button", text: "Accept", attr: { "aria-label": `Accept: ${title}` } }).addEventListener("click", () => actions.acceptCandidate(entry.chapterId, id));
 			li.createEl("button", { cls: "bh-icon-button", text: "Reject", attr: { "aria-label": `Reject: ${title}` } }).addEventListener("click", () => actions.rejectCandidate(entry.chapterId, id));
 		};
 		for (const e of entry.events) row(`Event: ${e.label}`, e.quote, e.id);
-		for (const r of entry.relations) row(describeRelation(r), r.quote, r.id);
+		for (const r of entry.relations) row(describeRelation(r), r.quote, r.id, r.warning);
 	}
 }
 
@@ -485,6 +487,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: overview?.statistics ? "Hide statistics" : "Show statistics" }).addEventListener("click", () => bookActions.toggleStatistics());
 	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub(null));
 	bar.createEl("button", { cls: "bh-button", text: "Find events in chapters" }).addEventListener("click", () => bookActions.findEvents());
+	bar.createEl("button", { cls: "bh-button", text: "Find dates in chapters", attr: { title: "Finds the dates your text states. Uses no model and sends nothing anywhere." } }).addEventListener("click", () => bookActions.findDates());
 	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
 	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());
 	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());

@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), classifyAdjectives: vi.fn(), checkConsistency: vi.fn(), decideFinding: vi.fn(), openPlace: vi.fn(), findEvents: vi.fn(), acceptCandidate: vi.fn(), rejectCandidate: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), removeAnswer: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), classifyAdjectives: vi.fn(), checkConsistency: vi.fn(), decideFinding: vi.fn(), openPlace: vi.fn(), findEvents: vi.fn(), findDates: vi.fn(), acceptCandidate: vi.fn(), rejectCandidate: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), removeAnswer: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -534,6 +534,13 @@ describe("event suggestions rendering", () => {
 		expect(a.rejectCandidate).toHaveBeenCalledWith("c1", "r4");
 		click("Find events in chapters");
 		expect(a.findEvents).toHaveBeenCalled();
+		click("Find dates in chapters");
+		expect(a.findDates).toHaveBeenCalled();
+	});
+	it("shows a warning that came with a suggestion", () => {
+		const entry = { chapterId: "c1", designation: "Chapter 1", current: true, events: [], relations: [{ id: "r1", kind: "date" as const, a: "It was Friday", b: "", duration: "", date: "2091-03-14", quote: "It was Friday", warning: "The text says Friday, but it is a Wednesday." }] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), eventCandidates: [entry] }, actions());
+		expect(root.querySelector(".bh-candidates .bh-callout")?.textContent).toBe("The text says Friday, but it is a Wednesday.");
 	});
 	it("does not offer to accept suggestions from a chapter that changed", () => {
 		const a = actions();

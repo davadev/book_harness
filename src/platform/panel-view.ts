@@ -43,7 +43,7 @@ import { checkConsistency, decideFinding, loadFindings, needsSecondLook, recordF
 import { classifyAdjectives } from "../core/stats/adjective-model";
 import { contextAround } from "../core/synonyms";
 import { askBook, chronologyText, gatherEvidence, type Citation } from "../core/agent/ask";
-import { acceptCandidate, candidatesAreCurrent, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
+import { acceptCandidate, candidatesAreCurrent, findDatesInChapter, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
 import { loadGlossary, syncTranslation, type Resolution } from "../core/translation/translate";
 import { PromptModal } from "./prompt-modal";
@@ -593,6 +593,15 @@ export class BookHarnessView extends ItemView {
 				if (ready === null) return;
 				const { base, device, targets } = ready;
 				new ConfirmModal(this.app, "Find events in chapters", [`The text of ${targets.length} chapter(s) will be sent to ${base} using the model "${device.generationModel}".`, "The model only suggests events and what the text says about when they happen. Each suggestion shows the words it comes from, and nothing is added to your timeline until you accept it. Your chapters are not changed.", "You can cancel while it runs."], "Find events", () => void this.startEventSearch(vault, book, targets, base, device.generationModel).catch(fail)).open();
+			},
+			findDates: () => {
+				const targets = chapters.filter((c) => c.notePath !== null);
+				if (targets.length === 0) return void new Notice("No chapter has a manuscript note yet.");
+				run((async () => {
+					let found = 0;
+					for (const c of targets) found += await findDatesInChapter(vault, book, c);
+					new Notice(found === 0 ? "No new dates found in the text." : `Found ${found} date(s) stated in the text. Review them under Suggested events.`, 8000);
+				})());
 			},
 			acceptCandidate: (chapterId, id) => run(acceptCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id, platformRandom)),
 			rejectCandidate: (chapterId, id) => run(rejectCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id)),
