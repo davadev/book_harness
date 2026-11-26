@@ -117,3 +117,34 @@
 	overflow-wrap: anywhere;
 	padding: var(--size-4-2) var(--size-4-3);
 }
+
+/* Suggested changes inside the Markdown editor. Meaning is carried by strike-through, underline and a text label, not colour alone. */
+.bh-del {
+	text-decoration: line-through;
+	opacity: 0.75;
+}
+
+.bh-suggestion {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-inline-start: var(--size-4-1);
+}
+
+.bh-ins {
+	text-decoration: underline;
+	background: var(--background-modifier-hover);
+	border-radius: var(--radius-s);
+	padding: 0 var(--size-4-1);
+}
+
+.bh-ins::before {
+	content: "+ ";
+}
+
+.bh-suggestion-button {
+	min-height: 44px;
+	min-width: 44px;
+	font-size: var(--font-ui-smaller);
+}

@@ -105,7 +105,7 @@ describe("no unsolicited model calls (AC-C-1)", () => {
 			loadLocalStorage: () => ({ endpoint: "http://configured:11434", generationModel: "m", embeddingModel: "e" }),
 			saveLocalStorage: () => undefined,
 			vault: { adapter, configDir: ".obsidian", on: (_n: string, cb: (...a: unknown[]) => unknown) => (handlers.push(cb), {}), getMarkdownFiles: () => [] },
-			workspace: { onLayoutReady: (cb: () => void) => cb() },
+			workspace: { onLayoutReady: (cb: () => void) => cb(), on: () => ({}) },
 		};
 		const plugin = new BookHarnessPlugin(app as never, { id: "book-harness", dir: ".obsidian/plugins/book-harness" } as never);
 		(plugin as unknown as { register: (f: () => void) => void }).register = () => undefined;

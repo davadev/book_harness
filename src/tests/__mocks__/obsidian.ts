@@ -44,6 +44,9 @@ export class Plugin {
   registerInterval(id: number) { this.intervals.push(id); return id; }
   addRibbonIcon(icon: string, title: string, cb: () => unknown) { this.ribbon.push({ icon, title, cb }); return {}; }
   addSettingTab(tab: unknown) { this.settingTabs.push(tab); }
+  editorExtensions: unknown[] = [];
+  registerEditorExtension(ext: unknown) { this.editorExtensions.push(ext); }
+  register(cb: () => void) { this.events.push(cb); }
 }
 export class PluginSettingTab {
   // Real Obsidian assigns both and exposes update() for declarative tabs;

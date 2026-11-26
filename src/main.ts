@@ -1,6 +1,7 @@
 import { Notice, Plugin } from "obsidian";
 import { DEFAULT_CRASH_STATE, crashStatePath, decideOnLoad, readCrashState, writeCrashState } from "./crashGuard";
 import { logDebug, logError, logWarn, setLogLevel } from "./logger";
+import { EditorReview } from "./platform/editor-review";
 import { JobRunner } from "./core/jobs";
 import { onVaultRename } from "./platform/follow-renames";
 import { PANEL_VIEW_TYPE, BookHarnessView } from "./platform/panel-view";
@@ -20,6 +21,7 @@ export default class BookHarnessPlugin extends Plugin {
 	private readonly runner = new JobRunner();
 	readonly network: NetworkPort = obsidianNetwork;
 	readonly diagnostics = new DiagnosticsLog();
+	private editorReview: EditorReview | null = null;
 
 	async onload(): Promise<void> {
 		try {
@@ -44,11 +46,21 @@ export default class BookHarnessPlugin extends Plugin {
 		await this.loadSettings();
 		logDebug("settings loaded");
 		this.addCommand({ id: "register-book", name: "Register this note's folder as a book", callback: () => registerActiveFolder(this.app) });
+		this.editorReview = new EditorReview(this.app);
+		this.registerEditorExtension(this.editorReview.extension());
 		this.registerView(PANEL_VIEW_TYPE, (leaf) => new BookHarnessView(leaf, this.runner, this));
 		this.addCommand({ id: "open-panel", name: "Open the book panel", callback: () => void this.openPanel() });
 		this.addRibbonIcon("book-open", "Open the book panel", () => void this.openPanel());
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.vault.on("rename", (file, oldPath) => void onVaultRename(this.app, file, oldPath)));
+			const review = this.editorReview as EditorReview;
+			const refresh = () => review.schedule();
+			this.register(() => review.cancel());
+			this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
+			this.registerEvent(this.app.workspace.on("file-open", refresh));
+			this.registerEvent(this.app.workspace.on("layout-change", refresh));
+			this.registerEvent(this.app.vault.on("modify", refresh));
+			review.schedule();
 		});
 		this.addSettingTab(new PluginSettingsTab(this.app, this));
 		const survived = window.setTimeout(() => {

@@ -137,7 +137,7 @@ export interface ApplyResult {
 }
 
 /** Where an accepted change belongs in the current text, or null when that cannot be told for certain. */
-function locate(text: string, edit: ProposedEdit, sameRevision: boolean): number | null {
+export function locate(text: string, edit: ProposedEdit, sameRevision: boolean): number | null {
 	if (sameRevision && text.slice(edit.from, edit.to) === edit.original) return edit.from;
 	// The note was edited since: only the same words with the same surroundings, found exactly once, count as the same place.
 	const needle = edit.before + edit.original + edit.after;

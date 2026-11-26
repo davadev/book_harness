@@ -16,6 +16,7 @@ function makePlugin(files: Record<string, string> = {}, failWrite = false) {
 	const vaultHandlers: Array<(...a: unknown[]) => unknown> = [];
 	const workspace = {
 		onLayoutReady: (cb: () => void) => cb(),
+		on: () => ({}),
 		getLeavesOfType: vi.fn(() => [] as unknown[]),
 		getRightLeaf: vi.fn((): unknown => null),
 		revealLeaf: vi.fn(() => Promise.resolve()),
@@ -52,12 +53,14 @@ describe("BookHarnessPlugin", () => {
 
 	it("registers the panel view, command, ribbon icon and a rename follower after layout is ready", async () => {
 		const { plugin, workspace, vaultHandlers } = makePlugin();
-		const p = plugin as unknown as { views: Map<string, (leaf: unknown) => unknown>; ribbon: Array<{ cb: () => unknown }>; events: unknown[]; commands: Array<{ id: string; callback: () => unknown }> };
+		const p = plugin as unknown as { views: Map<string, (leaf: unknown) => unknown>; ribbon: Array<{ cb: () => unknown }>; events: unknown[]; editorExtensions: unknown[]; commands: Array<{ id: string; callback: () => unknown }> };
 		await plugin.onload();
 		expect(p.views.has("book-harness-panel")).toBe(true);
 		expect(p.views.get("book-harness-panel")?.({ app: {} })).toBeDefined();
-		expect(p.events).toHaveLength(1);
-		vaultHandlers[0]?.({ path: "a.md" }, "b.md");
+		expect(p.events.filter((e) => typeof e !== "function")).toHaveLength(5);
+		expect(p.editorExtensions).toHaveLength(1);
+		for (const h of vaultHandlers) h({ path: "a.md" }, "b.md");
+		p.events.filter((e): e is () => void => typeof e === "function").forEach((f) => f());
 		const leaf = { setViewState: vi.fn(() => Promise.resolve()) };
 		workspace.getRightLeaf.mockReturnValue(leaf);
 		p.ribbon[0]?.cb();

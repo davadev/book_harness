@@ -10,8 +10,9 @@ import { JobRunner, dismissJob, listJobs, presentJobs } from "../core/jobs";
 import type { DiagnosticsLog } from "../core/ai/diagnostics";
 import type { NetworkPort } from "../core/ai/network";
 import { OllamaClient, normalizeEndpoint } from "../core/ai/ollama";
-import { coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, settleCoverage, type CoverageView } from "../core/proofread";
-import { applyAccepted, decide, listProposals } from "../core/proposals";
+import { coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, type CoverageView } from "../core/proofread";
+import { listProposals } from "../core/proposals";
+import { applyProposalById, decideEdits } from "../core/review";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
 import type { BookHarnessSettings } from "../settings/defaults";
 import { ConfirmModal } from "./confirm-modal";
@@ -28,6 +29,11 @@ export interface PanelHost {
 	settings: BookHarnessSettings;
 	network: NetworkPort;
 	diagnostics: DiagnosticsLog;
+}
+
+/** Tell the author what applying did, in plain words. */
+export function announceApplied(result: { applied: number; conflicts: string[] }): void {
+	new Notice(`Applied ${result.applied} change${result.applied === 1 ? "" : "s"}.${result.conflicts.length ? ` ${result.conflicts.length} could not be placed because the text changed; they were left for you.` : ""}`, 8000);
 }
 
 export const PANEL_VIEW_TYPE = "book-harness-panel";
@@ -243,27 +249,8 @@ export class BookHarnessView extends ItemView {
 					() => void this.startProofreading(vault, book, targets, base, device.generationModel).catch(fail),
 				).open();
 			},
-			decideEdits: (proposalId, editIds, decision) =>
-				run(
-					(async () => {
-						const proposal = (await listProposals(vault, book)).proposals.find((p) => p.id === proposalId);
-						if (!proposal) throw new Error("That proposal no longer exists.");
-						const updated = await decide(vault, book, proposal, editIds, decision);
-						const chapter = find(updated.chapterId);
-						await settleCoverage(vault, book, chapter, [updated]);
-					})(),
-				),
-			applyProposal: (proposalId) =>
-				run(
-					(async () => {
-						const proposal = (await listProposals(vault, book)).proposals.find((p) => p.id === proposalId);
-						if (!proposal) throw new Error("That proposal no longer exists.");
-						const chapter = find(proposal.chapterId);
-						const result = await applyAccepted(vault, book, chapter, proposal);
-						await settleCoverage(vault, book, chapter, [result.proposal]);
-						new Notice(`Applied ${result.applied} change${result.applied === 1 ? "" : "s"}.${result.conflicts.length ? ` ${result.conflicts.length} could not be placed because the text changed; they were left for you.` : ""}`, 8000);
-					})(),
-				),
+			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
+			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
 			cancelJob: (id) => this.runner.cancel(id),
 			dismissJob: (id) =>
 				run(
