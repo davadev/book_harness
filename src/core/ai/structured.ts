@@ -37,7 +37,7 @@ async function chatWithRetry(client: OllamaClient, opts: StructuredOptions, mess
 	for (let attempt = 0; ; attempt++) {
 		count.n++;
 		try {
-			return await client.chat({ model: opts.model, messages, format: schema, temperature: 0.2, numCtx: opts.numCtx }, opts.signal);
+			return await client.chat({ model: opts.model, messages, format: schema, temperature: 0.2, numCtx: opts.numCtx, think: false }, opts.signal);
 		} catch (e) {
 			const retryable = e instanceof ModelError && RETRYABLE.has(e.kind) && attempt < BACKOFF_MS.length && !opts.signal?.aborted;
 			if (!retryable) throw e;

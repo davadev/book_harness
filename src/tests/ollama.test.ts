@@ -45,9 +45,9 @@ describe("OllamaClient", () => {
 	it("sends a non-streaming chat with the schema and options and parses the answer and usage", async () => {
 		const n = net({ "/api/chat": ok({ message: { role: "assistant", content: "hi" }, prompt_eval_count: 3, eval_count: 2, total_duration: 5_000_000 }) });
 		const schema = { type: "object" };
-		const r = await new OllamaClient(n, "http://h:1").chat({ model: "m", messages: [{ role: "user", content: "x" }], format: schema, temperature: 0.2, numCtx: 4096, timeoutMs: 5 });
+		const r = await new OllamaClient(n, "http://h:1").chat({ model: "m", messages: [{ role: "user", content: "x" }], format: schema, temperature: 0.2, numCtx: 4096, think: false, timeoutMs: 5 });
 		expect(r).toEqual({ content: "hi", promptTokens: 3, outputTokens: 2, totalMs: 5 });
-		expect(JSON.parse(n.calls[0]!.body!)).toEqual({ model: "m", messages: [{ role: "user", content: "x" }], stream: false, format: schema, options: { temperature: 0.2, num_ctx: 4096 } });
+		expect(JSON.parse(n.calls[0]!.body!)).toEqual({ model: "m", messages: [{ role: "user", content: "x" }], stream: false, think: false, format: schema, options: { temperature: 0.2, num_ctx: 4096 } });
 		expect(n.calls[0]).toMatchObject({ method: "POST", timeoutMs: 5 });
 	});
 

@@ -87,7 +87,7 @@ describe("task state records", () => {
 		const { raw, vault, book, one } = await setup();
 		await saveRecord(vault, book, rec({ chapterId: one.id }));
 		raw.replaceIfUnchanged = () => Promise.resolve(false);
-		await expect(saveRecord(vault, book, rec({ chapterId: one.id }))).rejects.toThrow(/another device/);
+		await expect(saveRecord(vault, book, rec({ chapterId: one.id, fingerprint: "fp:changed" }))).rejects.toThrow(/another device/);
 	});
 
 	it.each([

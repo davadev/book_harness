@@ -61,6 +61,9 @@ export class GuardedVault implements VaultPort {
 
 	async replaceIfUnchanged(path: string, expected: string, next: string): Promise<boolean> {
 		await this.assertWritable(path);
+		// Writing identical text changes the file's modification time and makes a sync tool upload it for nothing, which two
+		// devices following the same rename could repeat forever. Identical result: no write.
+		if (next === expected) return (await this.inner.read(path)) === expected;
 		return this.inner.replaceIfUnchanged(path, expected, next);
 	}
 

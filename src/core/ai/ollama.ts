@@ -14,6 +14,8 @@ export interface ChatRequest {
 	temperature?: number;
 	/** Context window in tokens. */
 	numCtx?: number;
+	/** Turn a thinking model's reasoning phase on or off. Structured extraction does not need it and it costs minutes. */
+	think?: boolean;
 	timeoutMs?: number;
 }
 
@@ -75,7 +77,7 @@ export class OllamaClient {
 		const options: Record<string, number> = {};
 		if (req.temperature !== undefined) options.temperature = req.temperature;
 		if (req.numCtx !== undefined) options.num_ctx = req.numCtx;
-		const body = asRecord(await this.call("POST", "/api/chat", { model: req.model, messages: req.messages, stream: false, ...(req.format === undefined ? {} : { format: req.format }), options }, req.timeoutMs ?? GENERATION_TIMEOUT_MS, signal, req.model));
+		const body = asRecord(await this.call("POST", "/api/chat", { model: req.model, messages: req.messages, stream: false, ...(req.think === undefined ? {} : { think: req.think }), ...(req.format === undefined ? {} : { format: req.format }), options }, req.timeoutMs ?? GENERATION_TIMEOUT_MS, signal, req.model));
 		const content = asRecord(body.message).content;
 		if (typeof content !== "string") throw new ModelError("bad-response", "The model's answer was not in the expected format.");
 		const total = typeof body.total_duration === "number" ? Math.round(body.total_duration / 1e6) : undefined;

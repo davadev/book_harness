@@ -47,7 +47,7 @@ describe("runStructured", () => {
 		const r = await runStructured(new OllamaClient(net, "http://h:1"), task, opts({ diagnostics: log }));
 		expect(r).toEqual({ value: { n: 3 }, issues: [] });
 		expect(net.calls).toHaveLength(1);
-		expect(JSON.parse(net.calls[0]!.body!)).toMatchObject({ format: {}, options: { temperature: 0.2 } });
+		expect(JSON.parse(net.calls[0]!.body!)).toMatchObject({ format: {}, think: false, options: { temperature: 0.2 } });
 		expect(log.recent()[0]).toMatchObject({ task: "t", model: "m", outcome: "ok", attempts: 1, repaired: false, issues: [] });
 		expect(JSON.stringify(log.recent())).not.toContain("go");
 	});

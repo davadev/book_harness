@@ -50,3 +50,16 @@ describe("manuscript write guard", () => {
 		expect(vault.markdownPaths()).toContain("Other/notes.md");
 	});
 });
+
+describe("sync-friendly writes", () => {
+	it("does not write when the result is identical, but still refuses if the file changed meanwhile", async () => {
+		const { raw, vault } = await setup();
+		await vault.create("Book/_book-harness/x.md", "same");
+		const before = raw.writes.length;
+		expect(await vault.replaceIfUnchanged("Book/_book-harness/x.md", "same", "same")).toBe(true);
+		expect(raw.writes.length).toBe(before);
+		raw.files.set("Book/_book-harness/x.md", "edited elsewhere");
+		expect(await vault.replaceIfUnchanged("Book/_book-harness/x.md", "same", "same")).toBe(false);
+		expect(raw.writes.length).toBe(before);
+	});
+});
