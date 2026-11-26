@@ -1,0 +1,181 @@
+{
+  "title": "The Long Tuesday",
+  "expected": {
+    "character": [
+      "Ines Varga",
+      "Jonas Reiter",
+      "Halloran Pike",
+      "Dev Anand",
+      "Mirela Costa"
+    ],
+    "place": [
+      "Kestrel Platform",
+      "Hold Four"
+    ],
+    "object": [
+      "Fold"
+    ]
+  },
+  "subjects": [
+    {
+      "name": "Ines Varga",
+      "aliases": [
+        "Ines"
+      ],
+      "planted": "age: thirty-eight in chapter 2, thirty-six in chapter 3 (time travel adds no years)"
+    },
+    {
+      "name": "Jonas Reiter",
+      "aliases": [
+        "Jonas"
+      ],
+      "planted": "scar on the left palm (chapters 1, 2, 3), on the right palm (chapter 3)"
+    },
+    {
+      "name": "Fold",
+      "aliases": [
+        "the Fold",
+        "the ring"
+      ],
+      "planted": "limit seventy-two hours (chapters 1, 2), ninety-six hours (chapter 3); first test 3 March, eight days before 11 March (ch2) vs three weeks (ch3)"
+    },
+    {
+      "name": "Halloran Pike",
+      "aliases": [
+        "Pike"
+      ],
+      "planted": "none planted"
+    }
+  ],
+  "questions": [
+    {
+      "q": "Who is the director of the platform?",
+      "expect": [
+        "pike"
+      ],
+      "note": "answerable"
+    },
+    {
+      "q": "What did Jonas throw at the ceiling when the balloon test worked?",
+      "expect": [
+        "cap"
+      ],
+      "note": "answerable, chapter 2"
+    },
+    {
+      "q": "Why did Jonas decide to fire the Fold on Thursday night?",
+      "expect": [
+        "closure",
+        "crack",
+        "ring",
+        "back"
+      ],
+      "note": "answerable, chapter 3"
+    },
+    {
+      "q": "What is the name of the platform's cat?",
+      "expect": null,
+      "note": "trap: not in the book, should not be answered"
+    },
+    {
+      "q": "How far back can the Fold send a person?",
+      "expect": [
+        "72",
+        "seventy-two",
+        "96",
+        "ninety-six"
+      ],
+      "note": "the book contradicts itself (72 hours in chapters 1 and 2, 96 in chapter 3)"
+    }
+  ],
+  "truthDates": [
+    "2091-03-03",
+    "2091-03-11",
+    "2091-03-12",
+    "2091-03-13",
+    "2091-03-14",
+    "2088"
+  ],
+  "search": [
+    [
+      "a dead engineer on the floor of the cold hold",
+      "Chapter 1"
+    ],
+    [
+      "meeting her own double in the mess",
+      "Chapter 2"
+    ],
+    [
+      "writing a note from memory in her own handwriting",
+      "Chapter 3"
+    ],
+    [
+      "a cap stuck on the ceiling pipe",
+      "Chapter 2"
+    ],
+    [
+      "the discharge from the ring killed him",
+      "Chapter 3"
+    ],
+    [
+      "warm coffee in a green mug",
+      "Chapter 1"
+    ]
+  ],
+  "facts": [
+    {
+      "chapter": 1,
+      "label": "Jonas is found dead",
+      "pattern": "dead|died|killed|body|death|corpse|lifeless",
+      "want": true
+    },
+    {
+      "chapter": 1,
+      "label": "Pike does not announce a closure in this chapter",
+      "pattern": "announc\\w* (the |a )?(project'?s? )?clos|clos(ed|ure|ing)",
+      "want": false
+    },
+    {
+      "chapter": 1,
+      "label": "she follows the note back in time",
+      "pattern": "travel|jump|step|went back|goes back|back in time|fold",
+      "want": true
+    },
+    {
+      "chapter": 2,
+      "label": "the ring has a crack or flaw",
+      "pattern": "crack|hairline|flaw|fractur",
+      "want": true
+    },
+    {
+      "chapter": 2,
+      "label": "Jonas is alive and she tells him",
+      "pattern": "tell|told|explain|convince|persuad",
+      "want": true
+    },
+    {
+      "chapter": 2,
+      "label": "she avoids her other self",
+      "pattern": "herself|other (ines|self|version)|past self|double|another",
+      "want": true
+    },
+    {
+      "chapter": 3,
+      "label": "Jonas dies",
+      "pattern": "die|dead|killed|death|body",
+      "want": true
+    },
+    {
+      "chapter": 3,
+      "label": "Jonas does not vanish into the ring",
+      "pattern": "(disappear|vanish)\\w*[^.]{0,40}ring|ring[^.]{0,40}(disappear|vanish)",
+      "want": false
+    },
+    {
+      "chapter": 3,
+      "label": "she writes the note herself",
+      "pattern": "note",
+      "want": true
+    }
+  ]
+}
