@@ -123,7 +123,7 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 		for (const c of chapters) {
 			const t0 = Date.now();
 			try {
-				const r = await summarizeChapter(vault, book, c, { client, model, prompt: effectivePrompt(SUMMARY_PROMPT, null), diagnostics: diag, now: () => new Date().toISOString(), sleep });
+				const r = await summarizeChapter(vault, book, c, { client, model, prompt: effectivePrompt(SUMMARY_PROMPT, null), language: "en", diagnostics: diag, now: () => new Date().toISOString(), sleep });
 				const stored = [...raw.files.entries()].find(([p]) => p.includes(`/summaries/${c.id}`))?.[1] ?? "";
 				const summary = /## Summary \(AI-managed\)\n\n([\s\S]*?)\n\n##/.exec(stored)?.[1] ?? "";
 				lines.push(`| ${c.designation} | ${secs(t0)} s | ${r.kind} | ${r.kind === "saved" && r.issues.length ? r.issues.join(" ") : ""} |`);
@@ -164,7 +164,7 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 			let free = "";
 			try {
 				if (process.env.EVAL_SKIP_FREE) throw new Error("skipped");
-				await summarizeChapter(vault, book, c, { client, model, prompt: effectivePrompt(SUMMARY_PROMPT, null), diagnostics: diag, now: () => new Date().toISOString(), sleep });
+				await summarizeChapter(vault, book, c, { client, model, prompt: effectivePrompt(SUMMARY_PROMPT, null), language: "en", diagnostics: diag, now: () => new Date().toISOString(), sleep });
 				const stored = [...raw.files.entries()].find(([p]) => p.includes(`/summaries/${c.id}`))?.[1] ?? "";
 				free = /## Summary \(AI-managed\)\n\n([\s\S]*?)\n\n##/.exec(stored)?.[1] ?? "";
 			} catch (e) { free = `FAILED ${(e as Error).message}`; }

@@ -226,7 +226,7 @@ export class BookHarnessView extends ItemView {
 		const client = new OllamaClient(this.host.network, base);
 		const now = () => new Date().toISOString();
 		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "chapter.summary", "summarize-chapters", chapters, async (chapter, signal) => {
-			const r = await summarizeChapter(vault, book, chapter, { client, model, prompt, signal, diagnostics: this.host.diagnostics, now, sleep });
+			const r = await summarizeChapter(vault, book, chapter, { client, model, prompt, language: book.primaryLanguage, signal, diagnostics: this.host.diagnostics, now, sleep });
 			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
 		});
 		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);

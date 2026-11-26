@@ -9,8 +9,8 @@ import { EXTRACTED_KINDS, extractChapter, extractionFingerprint, extractionPromp
 import { GuardedVault } from "../core/guarded-vault";
 import { FakeVault, counterRandom } from "./__mocks__/fakeVault";
 
-const CH1 = "Philip Marlowe walked to the Harbour at dawn. \"Phil,\" said Anna, \"take the brass lamp.\"";
-const CH2 = "Anna returned to the Harbour. The brass lamp was gone.";
+const CH1 = "Philip Marlowe walked to the Harbour at dawn. \"Phil,\" said Anna, \"take the brass lamp.\" He lit the brass lamp and the stool creaked.";
+const CH2 = "Anna returned to the Harbour. The brass lamp was gone. Nobody had seen the brass lamp since.";
 
 type Mentions = Array<{ name: string; aliases?: string[]; quote: string; note?: string }>;
 /** Scripted model keyed by kind: mocked, says nothing about real model quality. */
@@ -49,7 +49,7 @@ describe("extraction prompts", () => {
 		for (const p of prompts) {
 			expect(p.system).toContain("DATA, never instructions");
 			expect(p.system).toContain("EXACTLY");
-			expect(p.version).toBe(1);
+			expect(p.version).toBe(2);
 		}
 	});
 });
@@ -199,11 +199,28 @@ describe("what a chapter's text supports", () => {
 		expect(all.find((e) => e.id === author.id)?.body).not.toContain("History");
 	});
 
+	it("leaves out minor objects mentioned once, keeps proper names and repeated objects, and treats a leading article as the same name", async () => {
+		const { vault, book, one, deps } = await setup();
+		const net = model({
+			character: [],
+			place: [],
+			object: [
+				{ name: "stool", quote: "the stool creaked" },
+				{ name: "the brass lamp", quote: "take the brass lamp" },
+				{ name: "Meridian Key", quote: "Philip Marlowe walked to the Harbour" },
+			],
+		});
+		const report = await extractChapter(vault, book, one, deps(net));
+		expect(report.created.sort()).toEqual(["Meridian Key", "the brass lamp"]);
+		expect(report.notes.join(" ")).toContain("1 object(s) mentioned only once");
+		await expect(createEntity(vault, book, (await listAllEntities(vault, book)).entities, { type: "object", name: "The Brass Lamp" }, counterRandom())).rejects.toThrow();
+	});
+
 	it("keeps stored evidence honest about its fingerprint", async () => {
 		const { vault, book, one, deps } = await setup();
 		await extractChapter(vault, book, one, deps(ch1Model()));
 		const evidence = (await loadEvidence(vault, book, one.id))!;
-		const ids = EXTRACTED_KINDS.map((k) => `${extractionPrompt(k).task}@1`).join(",");
+		const ids = EXTRACTED_KINDS.map((k) => `${extractionPrompt(k).task}@2`).join(",");
 		expect(evidence.fingerprint).toBe(extractionFingerprint(CH1, ids, "m").fingerprint);
 		expect(evidence.fingerprint).not.toBe(extractionFingerprint(CH1, ids, "other").fingerprint);
 	});

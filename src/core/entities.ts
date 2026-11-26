@@ -31,7 +31,9 @@ export const entityPath = (book: Book, type: string, id: string): string => `${b
 const entitiesPrefix = (book: Book): string => `${book.folder}/${MANAGED_FOLDER}/entities/`;
 
 /** Names compare without regard to case, accents' composition or repeated spaces; never fuzzy. */
-export const nameKey = (name: string): string => name.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+const LEADING_ARTICLE = /^(?:the|a|an|der|die|das|den|dem|ein|eine)\s+(?=\S)/;
+/** Identity of a name: case, spacing and a leading article do not make a different entity ("the ring" is "ring"). */
+export const nameKey = (name: string): string => name.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase().replace(LEADING_ARTICLE, "");
 
 const cleanName = (raw: string): string => raw.replace(/\s+/g, " ").trim();
 

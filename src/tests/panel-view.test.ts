@@ -53,6 +53,13 @@ const text = (v: BookHarnessView) => v.contentEl.textContent as string;
 const button = (v: BookHarnessView, label: string, scope?: Element) => Array.from((scope ?? v.contentEl).querySelectorAll("button")).find((b) => b.textContent === label) as HTMLButtonElement;
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+/** A scripted summary reply whose quote really occurs in the chapter that was sent ("One" or "Two"); `invented` adds a statement the chapter does not support. */
+const summaryAnswer = (claim: string, invented = false) => (req?: { body?: string }) => {
+	const quote = /<chapter_text>\nTwo\n/.test((JSON.parse(req?.body ?? "{}") as { messages?: Array<{ content: string }> }).messages?.[1]?.content ?? "") ? "Two" : "One";
+	const points = [{ quote, claim }, ...(invented ? [{ quote: "Nothing like this", claim: "Invented." }] : [])];
+	return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ points }) } }) });
+};
+
 describe("BookHarnessView", () => {
 	it("cancels a pending redraw when the view closes", async () => {
 		const { fake, view } = await setup();
@@ -381,7 +388,7 @@ describe("BookHarnessView edge cases", () => {
 	it("summarizes after confirmation, shows the summary and flags it out of date when the text changes", async () => {
 		const { fake, view, host, store } = await setup();
 		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
-		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "A short summary.", key_points: ["one"] }) } }) }));
+		host.network.request.mockImplementation(summaryAnswer("A short summary."));
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
 		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
@@ -423,23 +430,23 @@ describe("BookHarnessView edge cases", () => {
 		store.delete("Book/two.md");
 		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
 		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
-		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "", key_points: [] }) } }) }));
+		host.network.request.mockImplementation(summaryAnswer("Something happened.", true));
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
 		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
 		button(view, "Summarize chapters").click();
 		expect(document.body.textContent).toContain("The text of 1 chapter will be sent");
 		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
-		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: Saved, but: The summary is empty."));
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: Saved, but: 1 statement(s) were left out"));
 	});
 
 	it("does not store a summary when the chapter changed while the model was working", async () => {
 		const { fake, view, host, store } = await setup();
 		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
-		host.network.request.mockImplementation(() => {
+		host.network.request.mockImplementation((req?: { body?: string }) => {
 			store.set("Book/one.md", "Rewritten meanwhile.");
 			store.set("Book/two.md", "Rewritten too.");
-			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "Old news.", key_points: [] }) } }) });
+			return summaryAnswer("Old news.")(req);
 		});
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
@@ -455,7 +462,7 @@ describe("BookHarnessView edge cases", () => {
 		store.delete("Book/two.md");
 		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
 		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
-		host.network.request.mockRejectedValueOnce(new Error("blip")).mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "Fine.", key_points: [] }) } }) }));
+		host.network.request.mockRejectedValueOnce(new Error("blip")).mockImplementation(summaryAnswer("Fine."));
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
 		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
@@ -744,7 +751,7 @@ describe("BookHarnessView edge cases", () => {
 	it("uses the plural for several chapters and discards a reading when the chapter changed meanwhile", async () => {
 		const { fake, view, host, store } = await setup();
 		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
-		host.network.request.mockImplementation(() => {
+		host.network.request.mockImplementation((req?: { body?: string }) => {
 			store.set("Book/one.md", "Rewritten meanwhile.");
 			store.set("Book/two.md", "Also rewritten.");
 			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ mentions: [] }) } }) });
