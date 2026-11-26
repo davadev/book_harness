@@ -18,6 +18,13 @@ export interface BookActions {
 	proofread(): void;
 	decideEdits(proposalId: string, editIds: string[], decision: "accepted" | "rejected"): void;
 	applyProposal(proposalId: string): void;
+	addEntity(): void;
+	renameEntity(id: string, current: string): void;
+	addAlias(id: string): void;
+	mergeEntity(id: string): void;
+	removeAlias(id: string): void;
+	splitEntity(id: string): void;
+	archiveEntity(id: string): void;
 	addTodo(): void;
 	completeTodo(manualId: string): void;
 	cancelJob(jobId: string): void;
@@ -56,6 +63,31 @@ function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): voi
 	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
 	const label = job.state === "running" ? "Cancel" : "Dismiss";
 	box.createEl("button", { cls: "bh-button", text: label }).addEventListener("click", () => (job.state === "running" ? actions.cancelJob(job.id) : actions.dismissJob(job.id)));
+}
+
+function renderEntities(root: HTMLElement, overview: Overview, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-entities" });
+	box.createEl("h4", { text: `Entities (${overview.entities.length})` });
+	let kind = "";
+	for (const e of overview.entities) {
+		if (e.type !== kind) {
+			kind = e.type;
+			box.createDiv({ cls: "bh-note", text: kind });
+		}
+		const row = box.createDiv({ cls: "bh-entity" });
+		row.createEl("button", { cls: "bh-link", text: e.name }).addEventListener("click", () => actions.openNote(e.path));
+		if (e.aliases.length > 0) row.createDiv({ cls: "bh-note", text: `Also: ${e.aliases.join(", ")}` });
+		const controls = row.createDiv({ cls: "bh-chapter-controls" });
+		const add = (label: string, aria: string, fn: () => void) => controls.createEl("button", { cls: "bh-icon-button", text: label, attr: { "aria-label": aria } }).addEventListener("click", fn);
+		add("Rename", `Rename ${e.name}`, () => actions.renameEntity(e.id, e.name));
+		add("Add alias", `Add another name for ${e.name}`, () => actions.addAlias(e.id));
+		add("Merge", `Merge ${e.name} into another ${e.type}`, () => actions.mergeEntity(e.id));
+		if (e.aliases.length > 0) {
+			add("Remove alias", `Remove one of the other names of ${e.name}`, () => actions.removeAlias(e.id));
+			add("Split", `Move one of the other names of ${e.name} to a new entity`, () => actions.splitEntity(e.id));
+		}
+		add("Remove", `Remove ${e.name} from the list`, () => actions.archiveEntity(e.id));
+	}
 }
 
 function renderProposal(root: HTMLElement, entry: Overview["proposals"][number], actions: BookActions): void {
@@ -127,12 +159,14 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
+	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());
 	bar.createEl("button", { cls: "bh-button", text: "Proofread chapters" }).addEventListener("click", () => bookActions.proofread());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);
+	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });
 		box.createEl("h4", { text: `To do (${overview.todos.length})` });

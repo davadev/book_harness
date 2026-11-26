@@ -628,6 +628,97 @@ describe("BookHarnessView edge cases", () => {
 		expect(host.network.request).toHaveBeenCalledTimes(2);
 	});
 
+	it("manages entities: add, alias, rename, merge and remove, never touching the chapters", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
+		const chapterBefore = store.get("Book/one.md");
+		const pick = (choice: string | null, name: string | null, confirm: string) => {
+			const sel = document.body.querySelector("select") as HTMLSelectElement;
+			if (choice !== null) {
+				sel.value = choice;
+				sel.dispatchEvent(new Event("change"));
+			}
+			if (name !== null) {
+				const input = document.body.querySelector("input") as HTMLInputElement;
+				input.value = name;
+				input.dispatchEvent(new Event("input"));
+			}
+			Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === confirm)!.click();
+		};
+		const add = async (type: string, name: string) => {
+			button(view, "Add an entity").click();
+			pick(type, name, "Add");
+			await vi.waitFor(() => expect(text(view)).toContain(name));
+		};
+		await add("character", "Philip");
+		await add("character", "P. Marlowe");
+		await add("place", "Harbour");
+		expect(text(view)).toContain("Entities (3)");
+		const row = (name: string) => Array.from(view.contentEl.querySelectorAll(".bh-entity")).find((e) => e.querySelector(".bh-link")?.textContent === name) as HTMLElement;
+		button(view, "Add alias", row("Philip")).click();
+		const prompt = (value: string) => {
+			const input = document.body.querySelector("input") as HTMLInputElement;
+			input.value = value;
+			input.dispatchEvent(new Event("input"));
+			Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Save")!.click();
+		};
+		prompt("Phil");
+		await vi.waitFor(() => expect(text(view)).toContain("Also: Phil"));
+		button(view, "Rename", row("Philip")).click();
+		prompt("Philip Marlowe");
+		await vi.waitFor(() => expect(text(view)).toContain("Philip Marlowe"));
+		button(view, "Merge", row("P. Marlowe")).click();
+		await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+		pick(null, null, "Merge");
+		await vi.waitFor(() => expect(text(view)).not.toContain("Merge P. Marlowe"));
+		expect(text(view)).toContain("P. Marlowe");
+		button(view, "Merge", row("Harbour")).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("There is no other place to merge Harbour into."));
+		button(view, "Remove", row("Harbour")).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Harbour"));
+		button(view, "Add alias", row("Philip Marlowe")).click();
+		prompt("Philip Marlowe");
+		button(view, "Add alias", row("Philip Marlowe")).click();
+		prompt("Old Phil");
+		await vi.waitFor(() => expect(text(view)).toContain("Old Phil"));
+		button(view, "Split", row("Philip Marlowe")).click();
+		await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+		pick("Old Phil", "The Old One", "Split");
+		await vi.waitFor(() => expect(text(view)).toContain("The Old One"));
+		button(view, "Split", row("Philip Marlowe")).click();
+		await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+		pick("Phil", "", "Split");
+		await vi.waitFor(() => expect(row("Phil")).toBeDefined());
+		button(view, "Add alias", row("Phil")).click();
+		prompt("Philly");
+		await vi.waitFor(() => expect(text(view)).toContain("Philly"));
+		button(view, "Remove alias", row("Phil")).click();
+		await vi.waitFor(() => expect(document.body.querySelector("select")).not.toBeNull());
+		pick(null, null, "Remove");
+		await vi.waitFor(() => expect(text(view)).not.toContain("Philly"));
+		button(view, "Add an entity").click();
+		pick("character", "phil", "Add");
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toMatch(/already belongs to/));
+		expect(store.get("Book/one.md")).toBe(chapterBefore);
+	});
+
+	it("says so when an entity vanished before an action reached it", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
+		button(view, "Add an entity").click();
+		(document.body.querySelector("input") as HTMLInputElement).value = "Lamp";
+		(document.body.querySelector("input") as HTMLInputElement).dispatchEvent(new Event("input"));
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Add")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Lamp"));
+		for (const key of [...store.keys()]) if (key.includes("/entities/")) store.delete(key);
+		button(view, "Remove").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That entity no longer exists."));
+	});
+
 	it("explains what is missing before proofreading and guards against a second job", async () => {
 		const { fake, view, host, store, runner } = await setup();
 		fake.state.active = "Book/one.md";

@@ -11,11 +11,13 @@ import type { DiagnosticsLog } from "../core/ai/diagnostics";
 import type { NetworkPort } from "../core/ai/network";
 import { OllamaClient, normalizeEndpoint } from "../core/ai/ollama";
 import { coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, type CoverageView } from "../core/proofread";
+import { ENTITY_TYPES, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
 import type { BookHarnessSettings } from "../settings/defaults";
 import { ConfirmModal } from "./confirm-modal";
+import { PickModal } from "./pick-modal";
 import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
@@ -114,10 +116,12 @@ export class BookHarnessView extends ItemView {
 			problems.push(...proposals.problems);
 			const coverage = new Map<string, CoverageView>();
 			if (book) for (const c of shown) if (c.notePath !== null && vault.exists(c.notePath)) coverage.set(c.id, coverageView(await vault.read(c.notePath), await loadCoverage(vault, book, c.id)));
+			const entityData = book ? await listAllEntities(vault, book) : { entities: [], problems: [] };
+			problems.push(...entityData.problems);
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities)) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -164,6 +168,14 @@ export class BookHarnessView extends ItemView {
 		const vault = createGuardedVault(this.app);
 		const fail = (e: unknown) => new Notice(e instanceof Error ? e.message : String(e), 8000);
 		const run = (work: Promise<unknown>) => void work.then(() => this.markDirty(), fail);
+		const aliasOptions = (e: Entity) => e.aliases.map((a) => ({ value: a, label: a }));
+		const entities = async () => (await listAllEntities(vault, book)).entities;
+		const withEntity = async (id: string, fn: (all: Entity[], e: Entity) => Promise<unknown>) => {
+			const all = await entities();
+			const e = all.find((x) => x.id === id);
+			if (!e) throw new Error("That entity no longer exists.");
+			return fn(all, e);
+		};
 		const find = (id: string): Chapter => chapters.find((c) => c.id === id) as Chapter;
 		return {
 			openNote: (path) => {
@@ -251,6 +263,34 @@ export class BookHarnessView extends ItemView {
 			},
 			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
 			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
+			addEntity: () =>
+				new PickModal(this.app, "Add an entity", ENTITY_TYPES.map((t) => ({ value: t, label: t })), "Name", "Add", (type, name) => run(entities().then((all) => createEntity(vault, book, all, { type, name }, platformRandom)))).open(),
+			renameEntity: (id, current) => new PromptModal(this.app, "Rename", "Name (the old name stays as an alias)", current, (v) => run(withEntity(id, (all, e) => renameEntity(vault, all, e, v)))).open(),
+			addAlias: (id) => new PromptModal(this.app, "Add another name", "Alias", "", (v) => run(withEntity(id, (all, e) => addAlias(vault, all, e, v)))).open(),
+			mergeEntity: (id) =>
+				run(
+					withEntity(id, (all, e) => {
+						const targets = activeEntities(all).filter((t) => t.id !== e.id && t.type === e.type);
+						if (targets.length === 0) throw new Error(`There is no other ${e.type} to merge ${e.name} into.`);
+						new PickModal(this.app, `Merge ${e.name} into…`, targets.map((t) => ({ value: t.id, label: t.name })), null, "Merge", (targetId) => run(mergeEntities(vault, e, targets.find((t) => t.id === targetId) as Entity))).open();
+						return Promise.resolve();
+					}),
+				),
+			removeAlias: (id) =>
+				run(
+					withEntity(id, (_all, e) => {
+						new PickModal(this.app, `Remove a name of ${e.name}`, aliasOptions(e), null, "Remove", (alias) => run(removeAlias(vault, e, alias))).open();
+						return Promise.resolve();
+					}),
+				),
+			splitEntity: (id) =>
+				run(
+					withEntity(id, (all, e) => {
+						new PickModal(this.app, `Move a name of ${e.name} to a new ${e.type}`, aliasOptions(e), "New name", "Split", (alias, name) => run(splitEntity(vault, book, all, e, { name: name || alias, aliases: [alias] }, platformRandom))).open();
+						return Promise.resolve();
+					}),
+				),
+			archiveEntity: (id) => run(withEntity(id, (_all, e) => archiveEntity(vault, e))),
 			cancelJob: (id) => this.runner.cancel(id),
 			dismissJob: (id) =>
 				run(

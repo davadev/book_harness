@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -194,6 +194,37 @@ describe("overview rendering", () => {
 		expect(notes).toEqual(["Proofreading: 3 of 5 paragraphs reviewed, 1 waiting for your decision, 1 not checked yet.", "Proofreading: 2 of 2 paragraphs reviewed."]);
 		click("Proofread chapters");
 		expect(a.proofread).toHaveBeenCalled();
+	});
+
+	it("lists entities by kind with their aliases and per-entity actions", () => {
+		const a = actions();
+		const ent = (id: string, type: string, name: string, aliases: string[] = []) => ({ id, bookId: "bk1", type, name, aliases, mergedInto: null, archived: false, path: `A/_book-harness/entities/${type}/${id}.md`, body: "" });
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const entities = [ent("en_2", "place", "Harbour"), ent("en_1", "character", "Philip", ["Phil", "Marlowe"]), ent("en_3", "character", "Anna")];
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), entities), a);
+		expect(text()).toContain("Entities (3)");
+		expect(Array.from(root.querySelectorAll(".bh-entities > .bh-note")).map((n) => n.textContent)).toEqual(["character", "place"]);
+		expect(Array.from(root.querySelectorAll(".bh-entity .bh-link")).map((n) => n.textContent)).toEqual(["Anna", "Philip", "Harbour"]);
+		expect(text()).toContain("Also: Phil, Marlowe");
+		const philip = Array.from(root.querySelectorAll(".bh-entity")).find((e) => e.textContent?.includes("Philip")) as HTMLElement;
+		(philip.querySelector(".bh-link") as HTMLButtonElement).click();
+		expect(a.openNote).toHaveBeenCalledWith("A/_book-harness/entities/character/en_1.md");
+		const press = (label: string) => (philip.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement).click();
+		press("Rename Philip");
+		expect(a.renameEntity).toHaveBeenCalledWith("en_1", "Philip");
+		press("Add another name for Philip");
+		expect(a.addAlias).toHaveBeenCalledWith("en_1");
+		press("Merge Philip into another character");
+		expect(a.mergeEntity).toHaveBeenCalledWith("en_1");
+		press("Remove one of the other names of Philip");
+		expect(a.removeAlias).toHaveBeenCalledWith("en_1");
+		press("Move one of the other names of Philip to a new entity");
+		expect(a.splitEntity).toHaveBeenCalledWith("en_1");
+		expect(root.querySelectorAll('button[aria-label^="Remove one of the other names"]')).toHaveLength(1);
+		press("Remove Philip from the list");
+		expect(a.archiveEntity).toHaveBeenCalledWith("en_1");
+		click("Add an entity");
+		expect(a.addEntity).toHaveBeenCalled();
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {
