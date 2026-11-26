@@ -1,6 +1,7 @@
 import { Notice, Plugin } from "obsidian";
 import { DEFAULT_CRASH_STATE, crashStatePath, decideOnLoad, readCrashState, writeCrashState } from "./crashGuard";
 import { logDebug, logError, logWarn, setLogLevel } from "./logger";
+import { registerActiveFolder } from "./platform/register-book";
 import { PluginSettingsTab } from "./settings/SettingsTab";
 import { DEFAULT_SETTINGS, normalizeSettings, type BookHarnessSettings } from "./settings/defaults";
 
@@ -32,6 +33,7 @@ export default class BookHarnessPlugin extends Plugin {
 		}
 		await this.loadSettings();
 		logDebug("settings loaded");
+		this.addCommand({ id: "register-book", name: "Register this note's folder as a book", callback: () => registerActiveFolder(this.app) });
 		this.addSettingTab(new PluginSettingsTab(this.app, this));
 		const survived = window.setTimeout(() => {
 			void writeCrashState(adapter, path, DEFAULT_CRASH_STATE);

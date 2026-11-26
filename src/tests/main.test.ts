@@ -30,6 +30,18 @@ describe("BookHarnessPlugin", () => {
 		expect(JSON.parse(written[CRASH])).toEqual({ counter: 1, autoDisabled: false });
 	});
 
+	it("registers the register-book command, which tells the author to open a note first", async () => {
+		const { plugin } = makePlugin();
+		const added: Array<{ id: string; callback: () => void }> = [];
+		(plugin as unknown as { addCommand: (c: { id: string; callback: () => void }) => void }).addCommand = (c) => added.push(c);
+		(plugin.app as unknown as { workspace: unknown }).workspace = { getActiveFile: () => null };
+		Notice.instances.length = 0;
+		await plugin.onload();
+		expect(added.map((c) => c.id)).toEqual(["register-book"]);
+		added[0]?.callback();
+		expect(Notice.instances[0]?.message).toMatch(/Open a note/);
+	});
+
 	it("clears the crash counter once the launch survives", async () => {
 		vi.useFakeTimers();
 		const { plugin, written, cleanups } = makePlugin();
