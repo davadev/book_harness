@@ -1168,7 +1168,7 @@ describe("BookHarnessView export", () => {
 		button(view, "Export as EPUB").click();
 		await vi.waitFor(() => expect(document.body.textContent).toContain("This book is not ready to export"));
 		const shown = document.body.textContent as string;
-		expect(shown).toContain("1 chapter will be in the book; 2 will be left out");
+		expect(shown).toContain("1 chapter(s) will be in the book; 2 will be left out");
 		expect(shown).toContain("Epilogue: planned, but no note is bound to it yet.");
 		expect(shown).toContain("Chapter 2: its note was not found.");
 		expect(shown).toContain("Note: Chapter 1 has proposed changes still waiting");
@@ -1557,5 +1557,70 @@ describe("BookHarnessView consistency", () => {
 		release({ status: 500, text: "no" });
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBeTruthy());
 		await vi.waitFor(() => expect(view.contentEl.querySelector(".bh-findings")).toBeNull());
+	});
+});
+
+describe("BookHarnessView language editions", () => {
+	const confirm = (label: string) => Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label).at(-1) as HTMLButtonElement;
+	it("exports an edition from the translations only, blocks on what is missing or out of date, and names the file by language", async () => {
+		const { fake, view, store, vault, book, one, two } = await setup();
+		const written = new Map<string, ArrayBuffer>();
+		const dirs = new Set<string>();
+		fake.appAny.vault.adapter = { exists: (p: string) => Promise.resolve(dirs.has(p)), mkdir: (p: string) => (dirs.add(p), Promise.resolve()), writeBinary: (p: string, d: ArrayBuffer) => (written.set(p, d), Promise.resolve()) };
+		const bookPath = [...store.keys()].find((p) => p.endsWith("/book.md")) as string;
+		store.set(bookPath, (store.get(bookPath) as string).replace("target_languages: []", "target_languages:\n  - de").replace("completion_chapter_status: finalized", "completion_chapter_status: drafting\nauthor: A. Writer"));
+		store.set("Book/one.md", "First paragraph here.");
+		store.set("Book/two.md", "Second chapter.");
+		const { syncTranslation } = await import("../core/translation/translate");
+		const model = { client: { chat: ({ messages }: { messages: Array<{ content: string }> }) => Promise.resolve({ content: JSON.stringify({ translation: `DE ${/<paragraph>\n([\s\S]*?)\n<\/paragraph>/.exec(messages[1]!.content)![1]}` }) }) } as never, model: "m", now: () => "t", sleep: () => Promise.resolve() };
+		await syncTranslation(vault, { ...book, targetLanguages: ["de"] }, one, "de", { model, random: counterRandom(), glossary: [] });
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export German as EPUB"));
+		// chapter 2 has no translation yet: blocked, draft offered, the draft names the language
+		button(view, "Export German as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("This book is not ready to export"));
+		expect(document.body.textContent).toContain("Chapter 2: it has no German translation yet.");
+		confirm("Export as draft").click();
+		await vi.waitFor(() => expect(written.size).toBe(1));
+		expect([...written.keys()][0]).toMatch(/^Book\/exports\/Book-de-draft-\d{4}-\d\d-\d\d\.epub$/);
+		const { unzipSync, strFromU8 } = await import("fflate");
+		const zip = unzipSync(new Uint8Array([...written.values()][0] as ArrayBuffer));
+		expect(strFromU8(zip["OEBPS/chapter001.xhtml"] as Uint8Array)).toContain("DE First paragraph here.");
+		expect(strFromU8(zip["OEBPS/content.opf"] as Uint8Array)).toContain("<dc:language>de</dc:language>");
+		// the source changes: the translation is out of date
+		store.set("Book/one.md", "First paragraph changed.");
+		await syncTranslation(vault, { ...book, targetLanguages: ["de"] }, two, "de", { model, random: counterRandom(), glossary: [] });
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
+		button(view, "Export German as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("its German translation is out of date"));
+		// the translation cannot be read: it is reported, not exported
+		const rec = [...store.keys()].find((p) => p.includes("/_align/"))!;
+		store.set(rec, "damaged");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("cannot be read"));
+		button(view, "Export German as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("translation cannot be read"));
+	});
+
+	it("exports a finished edition without a draft mark", async () => {
+		const { fake, view, store, vault, book, one, two } = await setup();
+		const written = new Map<string, ArrayBuffer>();
+		fake.appAny.vault.adapter = { exists: () => Promise.resolve(true), mkdir: () => Promise.resolve(), writeBinary: (p: string, d: ArrayBuffer) => (written.set(p, d), Promise.resolve()) };
+		const bookPath = [...store.keys()].find((p) => p.endsWith("/book.md")) as string;
+		store.set(bookPath, (store.get(bookPath) as string).replace("target_languages: []", "target_languages:\n  - de").replace("completion_chapter_status: finalized", "completion_chapter_status: drafting\nauthor: A. Writer"));
+		const { syncTranslation } = await import("../core/translation/translate");
+		const model = { client: { chat: () => Promise.resolve({ content: JSON.stringify({ translation: "Übersetzt." }) }) } as never, model: "m", now: () => "t", sleep: () => Promise.resolve() };
+		for (const c of [one, two]) await syncTranslation(vault, { ...book, targetLanguages: ["de"] }, c, "de", { model, random: counterRandom(), glossary: [] });
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Export German as EPUB"));
+		button(view, "Export German as EPUB").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Export German EPUB"));
+		expect(document.body.textContent).not.toContain("not ready");
+		(Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === "Export").at(-1) as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(written.size).toBe(1));
+		expect([...written.keys()][0]).toMatch(/Book-de-\d{4}-\d\d-\d\d\.epub$/);
 	});
 });

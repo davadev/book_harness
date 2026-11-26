@@ -38,6 +38,7 @@ What we measured with real local models is in `docs/evals/`. Short version: summ
 | Add an event / Add a time relation | Build a timeline by hand: "A before B", "B three days after A", "same time", a date (year, month or day). The panel shows what the evidence settles and what it does not, and shows a contradiction with the statements behind it | no |
 | Translations | For each target language: translate or update a chapter. Only changed paragraphs are sent; a paragraph whose translation you edited is never replaced without asking; decisions appear in the panel | yes |
 | Command: Suggest other words for the selected word | Select a word in a chapter; it shows alternatives that fit that sentence; the one you choose becomes a proposal you accept in the chapter | yes |
+| Export <language> as EPUB | In the Translations section: an EPUB made only from that language's translations. Missing or out-of-date translations block a normal export, so a draft is saved under a different name | no |
 | Export as EPUB | Builds an EPUB 3 into `<book folder>/exports/`. A book that is not finished (author missing, chapters below the required status, empty chapters) can only be exported as a draft, saved under a different name with the omissions listed | no |
 
 ## Reading what the panel tells you

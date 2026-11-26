@@ -499,6 +499,8 @@ describe("translations rendering", () => {
 		expect(a.translate).toHaveBeenCalledWith("de");
 		click("Check Czech");
 		expect(a.translate).toHaveBeenCalledWith("cs");
+		click("Export German as EPUB");
+		expect(a.exportEpub).toHaveBeenCalledWith("de");
 		(root.querySelector('button[aria-label^="Keep my translation"]') as HTMLButtonElement).click();
 		expect(a.resolveConflict).toHaveBeenCalledWith("c4", "de", "cf_edited-and-changed", "mine");
 		const machine = Array.from(root.querySelectorAll('button[aria-label^="Translate this paragraph again"]'));

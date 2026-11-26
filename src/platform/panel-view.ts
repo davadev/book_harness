@@ -33,7 +33,9 @@ import type { EventCandidate, RelationCandidate } from "../core/temporal/events"
 import type { StoredConstraint, TimelineEvent } from "../core/temporal/timeline";
 import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimeline, loadTimeline, parseCivil, retireConstraint, retireEvent } from "../core/temporal/timeline";
 import { buildEpub } from "../core/publishing/epub";
-import { blocksExport, planExport } from "../core/publishing/validate";
+import { loadVariant, translationStatus } from "../core/translation/store";
+import { languageName } from "../core/translation/translate";
+import { blocksExport, planExport, type ExportChapter } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { loadAnswers, retireAnswer, saveAnswer, type SavedAnswer } from "../core/agent/chats";
@@ -633,21 +635,40 @@ export class BookHarnessView extends ItemView {
 				);
 			},
 			openOccurrence: (o, word) => void this.openOccurrence(chapters, o, word),
-			exportEpub: () =>
+			exportEpub: (language) =>
 				void (async () => {
-					const items = await Promise.all(readingOrder(chapters).map(async (chapter) => ({ chapter, text: chapter.notePath !== null && vault.exists(chapter.notePath) ? await vault.read(chapter.notePath) : null })));
-					const open = new Set((await listProposals(vault, book)).proposals.filter((p) => p.edits.some((e) => e.decision !== "rejected" && e.decision !== "applied")).map((p) => p.chapterId));
+					const edition = language === null ? "" : languageName(language);
+					const items: ExportChapter[] = [];
+					for (const chapter of readingOrder(chapters)) {
+						const source = chapter.notePath !== null && vault.exists(chapter.notePath) ? await vault.read(chapter.notePath) : null;
+						if (language === null) {
+							items.push({ chapter, text: source });
+							continue;
+						}
+						// an edition in another language is made of the translations only: nothing is translated here and no languages are mixed
+						let loaded = null;
+						let problem: string | undefined;
+						try {
+							loaded = await loadVariant(vault, book, chapter, language);
+						} catch (e) {
+							problem = `its ${edition} translation cannot be read: ${(e as Error).message}`;
+						}
+						const status = translationStatus(language, source, loaded);
+						const note = problem ?? { "no-source": "there is no chapter note to translate.", missing: `it has no ${edition} translation yet.`, current: undefined, stale: `its ${edition} translation is out of date: the chapter changed since it was translated.`, conflicts: `its ${edition} translation has ${status.conflicts} change(s) waiting for your decision.`, broken: "its translation cannot be read." }[status.state];
+						items.push({ chapter, text: loaded?.variant.text ?? null, ...(note === undefined ? {} : { note }) });
+					}
+					const open = language === null ? new Set((await listProposals(vault, book)).proposals.filter((p) => p.edits.some((e) => e.decision !== "rejected" && e.decision !== "applied")).map((p) => p.chapterId)) : new Set<string>();
 					const plan = planExport(book, items, open);
 					const blocked = blocksExport(plan);
 					const lines = [
-						`${plan.included.length} chapter${plan.included.length === 1 ? "" : "s"} will be in the book${plan.omitted.length > 0 ? `; ${plan.omitted.length} will be left out` : ""}. No AI is used, and your chapters are not changed.`,
+						`${plan.included.length} chapter(s) will be in the ${language === null ? "" : `${edition} `}book${plan.omitted.length > 0 ? `; ${plan.omitted.length} will be left out` : ""}. No AI is used, and your chapters are not changed.`,
 						...plan.issues.map((i) => `${i.severity === "error" ? "Problem" : "Note"}: ${i.message}`),
 						blocked ? "Fix these, or export as a draft with what exists. A draft is saved with a different file name so it is not mistaken for the finished book." : "",
 					].filter((l) => l !== "");
 					const stamp = new Date().toISOString();
-					new ConfirmModal(this.app, blocked ? "This book is not ready to export" : "Export as EPUB", lines, blocked ? "Export as draft" : "Export", () =>
+					new ConfirmModal(this.app, blocked ? "This book is not ready to export" : language === null ? "Export as EPUB" : `Export ${edition} EPUB`, lines, blocked ? "Export as draft" : "Export", () =>
 						run(
-							writeExport(this.app, book.folder, exportFileName(book.title, stamp, blocked), buildEpub(book, plan.included, { modified: `${stamp.slice(0, 19)}Z` })).then((path) => {
+							writeExport(this.app, book.folder, exportFileName(book.title, stamp, blocked, language), buildEpub(book, plan.included, { modified: `${stamp.slice(0, 19)}Z`, ...(language === null ? {} : { language }) })).then((path) => {
 								new Notice(`Saved ${path}${blocked ? ` (draft; left out: ${plan.omitted.map((o) => o.chapter.designation).join(", ") || "nothing"})` : ""}`);
 							}),
 						),

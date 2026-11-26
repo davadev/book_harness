@@ -13,7 +13,7 @@ export async function writeExport(app: App, folder: string, fileName: string, by
 }
 
 /** A file name safe on every platform and sync service, from the book title. */
-export function exportFileName(title: string, stamp: string, draft: boolean): string {
+export function exportFileName(title: string, stamp: string, draft: boolean, language: string | null = null): string {
 	const slug = title.normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "book";
-	return `${slug}${draft ? "-draft" : ""}-${stamp.slice(0, 10)}.epub`;
+	return `${slug}${language === null ? "" : `-${language}`}${draft ? "-draft" : ""}-${stamp.slice(0, 10)}.epub`;
 }

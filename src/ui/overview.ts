@@ -45,7 +45,7 @@ export interface BookActions {
 	archiveEntity(id: string): void;
 	addTodo(): void;
 	addEvent(): void;
-	exportEpub(): void;
+	exportEpub(language: string | null): void;
 	toggleStatistics(): void;
 	checkConsistency(entityId: string): void;
 	decideFinding(entityId: string, findingId: string, decision: "open" | "mistake" | "intended" | "not-a-conflict"): void;
@@ -169,6 +169,7 @@ function renderTranslations(root: HTMLElement, overview: Overview, actions: Book
 		box.createEl("h5", { text: `${lang.name} (${lang.language})` });
 		const go = box.createEl("button", { cls: "bh-button", text: lang.toTranslate > 0 ? `Translate or update ${lang.name} (${lang.toTranslate} paragraph${lang.toTranslate === 1 ? "" : "s"})` : `Check ${lang.name}` });
 		go.addEventListener("click", () => actions.translate(lang.language));
+		box.createEl("button", { cls: "bh-button", text: `Export ${lang.name} as EPUB` }).addEventListener("click", () => actions.exportEpub(lang.language));
 		const list = box.createEl("ul");
 		for (const r of lang.rows) {
 			const li = list.createEl("li");
@@ -470,7 +471,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
 	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
 	bar.createEl("button", { cls: "bh-button", text: overview?.statistics ? "Hide statistics" : "Show statistics" }).addEventListener("click", () => bookActions.toggleStatistics());
-	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub());
+	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub(null));
 	bar.createEl("button", { cls: "bh-button", text: "Find events in chapters" }).addEventListener("click", () => bookActions.findEvents());
 	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
 	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());

@@ -139,3 +139,17 @@ describe("export files", () => {
 		expect(Array.from(new Uint8Array(written.get("My Book/exports/a.epub") as ArrayBuffer))).toEqual([1, 2, 3]);
 	});
 });
+
+describe("language editions", () => {
+	it("marks the package with the edition's language and reports a chapter note", () => {
+		const items = [{ chapter: chapter(1), text: "Übersetzt.", note: "its German translation is out of date." }];
+		const plan = planExport(book, items);
+		expect(plan.issues.map((i) => i.message)).toEqual(["Chapter 1: its German translation is out of date."]);
+		expect(plan.included).toHaveLength(1);
+		const zip = unzipSync(buildEpub(book, items, { modified: "2026-11-26T12:00:00Z", language: "de" }));
+		expect(strFromU8(zip["OEBPS/content.opf"] as Uint8Array)).toContain("<dc:language>de</dc:language>");
+		expect(strFromU8(zip["OEBPS/chapter001.xhtml"] as Uint8Array)).toContain('lang="de"');
+		expect(exportFileName("Salt", "2026-11-26T12:00:00Z", false, "de")).toBe("Salt-de-2026-11-26.epub");
+		expect(planExport(book, [{ chapter: chapter(1), text: null, note: "it has no German translation yet." }]).omitted[0]?.reason).toBe("it has no German translation yet.");
+	});
+});

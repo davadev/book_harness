@@ -11,8 +11,10 @@ export interface ExportIssue {
 
 export interface ExportChapter {
 	chapter: Chapter;
-	/** The chapter note's text, or null when there is no note to read. */
+	/** The text to export, or null when there is none to read. */
 	text: string | null;
+	/** A problem with this chapter's text that blocks a normal export, for example a translation that is out of date. */
+	note?: string;
 }
 
 export interface ExportPlan {
@@ -36,17 +38,18 @@ export function planExport(book: Book, items: readonly ExportChapter[], chapters
 	if (ordered.length === 0) issues.push({ severity: "error", message: "The book has no chapters." });
 	if (!book.author) issues.push({ severity: "error", message: "The author is not set. Add an author: property to the book note." });
 	for (const item of ordered) {
-		const { chapter, text } = item;
+		const { chapter, text, note } = item;
 		const fail = (reason: string) => {
 			issues.push({ severity: "error", message: `${chapter.designation}: ${reason}`, chapterId: chapter.id });
 			omitted.push({ chapter, reason });
 		};
 		if (chapter.notePath === null) fail("planned, but no note is bound to it yet.");
-		else if (text === null) fail("its note was not found.");
+		else if (text === null) fail(note ?? "its note was not found.");
 		else if (parseChapter(text).blocks.length === 0) fail("it has no text.");
 		else {
 			const parsed = parseChapter(text);
 			included.push(item);
+			if (note !== undefined) issues.push({ severity: "error", message: `${chapter.designation}: ${note}`, chapterId: chapter.id });
 			if (!meetsRequirement(chapter.status, book.completion.chapterStatus)) issues.push({ severity: "error", message: `${chapter.designation} is ${chapter.status}; this book requires ${book.completion.chapterStatus}.`, chapterId: chapter.id });
 			if (chaptersWithOpenProposals.has(chapter.id)) issues.push({ severity: "warning", message: `${chapter.designation} has proposed changes still waiting for your decision; they are not in the export.`, chapterId: chapter.id });
 			if (parsed.unsupported.length > 0) issues.push({ severity: "warning", message: `${chapter.designation} contains ${parsed.unsupported.join(", ")}, which the export keeps as plain paragraphs.`, chapterId: chapter.id });
