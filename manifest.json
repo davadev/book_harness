@@ -1,0 +1,10 @@
+{
+	"id": "book-harness",
+	"name": "Book Harness",
+	"version": "0.1.0",
+	"minAppVersion": "1.13.0",
+	"description": "Write, understand, maintain, translate, review and publish books with optional local AI assistance. You stay in control of your manuscript.",
+	"author": "davadev",
+	"authorUrl": "https://github.com/davadev",
+	"isDesktopOnly": false
+}

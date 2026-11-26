@@ -1,62 +1,50 @@
 # Book Harness — AGENTS.md
 
-> The master prompt (`BOOK_HARNESS_MASTER_PROMPT.md`) is kept locally and is not part of this public repository.
+Obsidian plugin (desktop + mobile) to write, understand, translate and publish books. A harness for the author, not an autonomous writer. The product spec (`BOOK_HARNESS_MASTER_PROMPT.md`) is kept locally, not in this public repo; its requirements are traced in `docs/SPEC.md`. Doc map: `docs/README.md`.
 
-Obsidian plugin (desktop + mobile) for writing, understanding, maintaining, translating, reviewing and publishing books. A harness for the author, not an autonomous writer. **Authoritative product spec: [`BOOK_HARNESS_MASTER_PROMPT.md`](./BOOK_HARNESS_MASTER_PROMPT.md) (never edit it).** This file is the always-loaded index; detail lives in `docs/`.
+## Start of every session
 
-## Start of every session (do this first)
-
-1. Read `docs/STATUS.md` (what is done, what is blocked, what is next).
-2. Read `docs/DECISIONS.md` open items relevant to the work you are about to do.
-3. Re-read the invariants below. Then work on exactly one slice from `docs/IMPLEMENTATION-PLAN.md`.
-4. Before ending: update `STATUS.md`, `DECISIONS.md`, `ACCEPTANCE.md` rows you touched. Docs must survive context compaction.
-
-## Non-negotiable invariants (spec §2; full text in the master prompt)
-
-1. **Author ownership.** No AI-originated change to manuscript prose without explicit, revision-safe accept/reject. One central write gate; no bypass.
-2. **Clean manuscript.** No wiki links, markers, annotations or publishing clutter in prose. Metadata is external.
-3. **Explicit structure.** Chapter membership/designation/order are author-defined, never inferred from names or times.
-4. **Controlled inference.** Zero model calls on save, startup, sync, indexing, editing. Only user-initiated, bounded workflows call models.
-5. **Modular intelligence.** Small single-purpose prompts; one failure never invalidates unrelated work.
-6. **Deterministic orchestration.** Models extract/suggest; software validates, orders, calculates, applies. The model never owns timeline ordering.
-7. **Markdown-first portability.** Essential state is human-inspectable vault Markdown; caches are rebuildable.
-8. **Native integration.** Obsidian APIs/editor extensions; do not replace the editor.
-9. **Grounding.** Separate manuscript evidence / author canon / inference / calculation. Never fabricate facts, dates, sources.
-10. **Independent operation.** Non-AI features work without AI.
-11. **Multi-book isolation** of queries, indexes, IDs, jobs, content.
-12. **Desktop and mobile from day one.** No unconditional Node/Electron/native binaries/paths. Record and decide any mobile limitation; never silently drop.
-
-## Always-on rules
-
-- **Playbook wins** over generic advice (private repo; see `docs/DISCOVERY.md`) except where it would violate an invariant; log any conflict in `docs/DECISIONS.md`.
-- **Do not modify** the playbook or `obsidian_timeline` repos. Reuse = copy with provenance (`docs/DISCOVERY.md` §4) or an approved shared package.
-- **Never claim done because UI exists.** A feature is done only when its acceptance rows in `docs/ACCEPTANCE.md` pass and `STATUS.md` says so. Untested platforms are written down as untested.
-- **Never label mocked-model results as model quality.** Mock inference in CI; real-model evals are opt-in and record model versions.
-- **Manuscript write gate:** only `src/platform/manuscript-gate` may write chapter-note bodies. An architectural test enforces this. See `docs/MANUSCRIPT-PROTECTION.md`.
-- **Pure core:** `src/core/**` never imports `obsidian`, DOM, Node. Platform code in `src/platform/`, UI in `src/ui/`.
-- **Playbook gates apply** once scaffolded: lint 0/0, 100 % coverage, `knip`, `check-release`, ES2018 lib floor, no `console.log` (use logger), no raw `localStorage`, `trashFile` not `delete`, sentence-case UI, 14-day dependency age, merge-commit PRs, prerelease-first releases.
-- Synthetic fixtures only; no private books in the repo.
-- Ask the user for consequential product trade-offs (open items in `docs/DECISIONS.md`); do not silently reduce scope.
-
-## Documentation map
-
-| Doc | Purpose |
-|---|---|
-| `docs/SPEC.md` | Requirement register: every master-prompt requirement with ID, phase, status |
-| `docs/DISCOVERY.md` | Repository discovery, reuse inventory, conventions, conflicts |
-| `docs/COMPATIBILITY.md` | Desktop/mobile matrix, runtime constraints, feasibility spikes |
-| `docs/ARCHITECTURE.md` | Layering, data model, Markdown persistence layout, identities, revisions, jobs |
-| `docs/AI-AND-PROMPTS.md` | Providers, prompt registry, output contracts, diagnostics |
-| `docs/MANUSCRIPT-PROTECTION.md` | Write gate, proposals, diff/review, proofreading |
-| `docs/SEARCH-AND-AGENT.md` | BM25 + embeddings + RRF, knowledge graph, chat agent |
-| `docs/TEMPORAL-ENGINE.md` | Event identity, constraint solver, timeline views, fixtures |
-| `docs/PUBLISHING.md` | Layout model, preview, EPUB/PDF, validation |
-| `docs/IMPLEMENTATION-PLAN.md` | Phases 0–13, slices, exit criteria |
-| `docs/DECISIONS.md` | ADR log: accepted, proposed, open |
-| `docs/RISKS.md` | Architectural risks and mitigations |
-| `docs/ACCEPTANCE.md` | Acceptance scenarios → tests |
-| `docs/STATUS.md` | Implementation ledger, blockers, change log |
+1. Read `docs/STATUS.md`, then open items in `docs/DECISIONS.md` for your work. Work one slice of `docs/IMPLEMENTATION-PLAN.md`.
+2. Before ending: update `STATUS.md`, `DECISIONS.md`, `ACCEPTANCE.md`. Docs must survive context compaction.
+3. Repo is **public**: no private books, no secrets, no hostnames, no private-repo (playbook) text.
 
 ## Commands
 
-Not scaffolded yet (Phase 1). Planned per playbook: `npm run build | test | test:cov | lint | lint:css | lint:deps | lint:cloud-parity | check:dead-code | check-release`.
+```bash
+npm run build | test | test:cov | lint | lint:css | lint:deps | lint:cloud-parity | check:dead-code
+npm run check-release       # REQUIRED before tagging (-- --tag X.Y.Z | --with-build | --strict)
+```
+
+Always `npm run build` before claiming done. Tests stub `obsidian` via `src/tests/__mocks__/obsidian.ts`.
+
+## Skills: when to use which
+
+| Trigger | Skill |
+|---|---|
+| Opening/merging a feature or fix PR; adding setting, command or UI; "is it done?" | `feature-done` |
+| About to edit `src/`, `styles.css`, settings or anything touching user data | `plugin-design-rules` |
+| Change merged to `main`; "release", "tag", "ship a beta" | `release-beta` |
+| User explicitly says "promote", "go stable" | `release-stable` |
+
+## Invariants (full list `docs/SPEC.md`)
+
+1. No AI change to manuscript prose without explicit accept/reject; one central write gate (`docs/MANUSCRIPT-PROTECTION.md`).
+2. Clean manuscript: no links, markers or annotations in prose; metadata external.
+3. Chapter membership/order are author-defined. 4. No model call on save/startup/sync/indexing/edit; only user-initiated bounded workflows.
+5. Models extract/suggest; software orders, validates, calculates (the model never owns timeline order).
+6. Markdown-first portable state; caches rebuildable. 7. Grounded, provenance-carrying facts; never fabricate.
+8. Non-AI features work offline. 9. Books isolated from each other. 10. Desktop and mobile from day one; record limits, never silently drop.
+
+## Always-on rules
+
+- `src/core/**` is pure: no `obsidian`, DOM or Node. Only `src/platform/**` imports `obsidian`.
+- Only `src/platform/manuscript-gate` may write chapter-note bodies (architecture test enforces).
+- Mocked model output is never reported as model quality. Synthetic fixtures only.
+- Work on a branch, PR, CI green, merge commit. Coverage 100 %, lint 0/0, never silence a rule; delete unreachable code.
+- Every release is a prerelease first (`X.Y.Z-beta.N`); stable only on explicit instruction; tag-driven (`docs/releasing.md`).
+- No dependency younger than 14 days; Actions pinned to SHAs; ES2018 API floor.
+- Ask the author (AskUserQuestion) for consequential trade-offs; do not silently reduce scope.
+
+## Reference
+
+Release manual `docs/releasing.md` · Repo https://github.com/davadev/book_harness · Commit style `X.Y.Z — short description` for releases.

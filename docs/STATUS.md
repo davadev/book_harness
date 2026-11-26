@@ -7,7 +7,7 @@ Last updated: 2026-11-26 (Phase 0 complete; no code written). Update this file a
 | Phase | Name | Status | Notes |
 |---|---|---|---|
 | 0 | Discovery and documentation | **Done (this session)** | Docs written; open decisions recorded. Playbook docs partly unread — see DISCOVERY §1. |
-| 1 | Scaffold, spikes S1–S8, compatibility proof | Not started | Unblocked (O-3 resolved). S4 needs O-1; S5/S7 need iPhone. |
+| 1 | Scaffold, spikes S1–S8, compatibility proof | **In progress**: scaffold slice done (below); spikes not started | Unblocked (O-3 resolved). S4 needs O-1; S5/S7 need iPhone. |
 | 2 | Core books/chapters/schemas/panel/write-gate skeleton | Not started | |
 | 3 | Revisions, invalidation, jobs, TODO foundation | Not started | |
 | 4 | AI infrastructure | Not started | O-1, O-2 open. |
@@ -84,11 +84,12 @@ Empty. No platform has been tested (desktop or mobile). See `COMPATIBILITY.md` �
 
 ## 7. Test and gate results
 
-No code, no tests, no gates run. The first gate run happens at the end of Phase 1 scaffolding.
+Scaffold slice (2026-11-26, desktop toolchain only): `build`, `lint` (0/0), `lint:css`, `lint:deps`, `check:dead-code`, `test:cov` (129 tests, 100 % on 4 metrics), `lint:cloud-parity` (0 errors) and `check-release --with-build --strict` (49 passed, 0 failed, 0 warned) are green. 16 dev-toolchain advisories reported by `npm audit` (not shipped, non-blocking; review in the dependency-update pass). **Not yet run:** WebKit/Chromium layout jobs, any real Obsidian runtime (desktop or iOS).
 
 ## 8. Change log
 
 | Date | Change |
 |---|---|
+| 2026-11-26 | Phase 1 scaffold: playbook templates applied (config, scripts, CI/release workflows, skills, hook, tests), minimal plugin (onload wrapper, crash guard, log level setting), README, LICENSE. O-1 (decision provider out of MVP) and Android (unverified) recorded. |
 | 2026-11-26 | Author resolved O-3, O-4, O-6, O-7, O-11. |
 | 2026-11-26 | Phase 0: read master prompt; inspected playbook and timeline plugin (`7f1611d`, v0.13.2); wrote AGENTS.md/CLAUDE.md and docs (SPEC, DISCOVERY, COMPATIBILITY, ARCHITECTURE, AI-AND-PROMPTS, MANUSCRIPT-PROTECTION, SEARCH-AND-AGENT, TEMPORAL-ENGINE, PUBLISHING, IMPLEMENTATION-PLAN, DECISIONS, RISKS, ACCEPTANCE, STATUS). No upstream repo modified. |
