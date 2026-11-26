@@ -33,6 +33,7 @@ import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimelin
 import { buildEpub } from "../core/publishing/epub";
 import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
+import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
@@ -59,6 +60,8 @@ export class BookHarnessView extends ItemView {
 	private dirty = true;
 	private drawing = false;
 	private lastSearch: SearchOutcome | null = null;
+	/** Statistics the author asked to see, with the book they belong to. Cleared when another book is shown. */
+	private statistics: { bookId: string; data: BookStatistics } | null = null;
 	private useMeaning = false;
 	private readonly contexts = new Map<string, PassageContext>();
 	private timer = 0;
@@ -148,7 +151,7 @@ export class BookHarnessView extends ItemView {
 			problems.push(...jobs.problems);
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -223,6 +226,24 @@ export class BookHarnessView extends ItemView {
 		}
 		const from = view.editor.offsetToPos(r.ref.start);
 		const to = view.editor.offsetToPos(r.ref.end);
+		view.editor.setSelection(from, to);
+		view.editor.scrollIntoView({ from, to }, true);
+	}
+
+	private async openOccurrence(chapters: readonly Chapter[], o: Occurrence, word: string): Promise<void> {
+		const path = (chapters.find((c) => c.id === o.chapterId) as Chapter).notePath;
+		const file = path === null ? null : this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return void new Notice("That chapter has no note to open.");
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(file);
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView)) return;
+		if (view.editor.getValue().slice(o.start, o.end).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() !== word) {
+			new Notice("This chapter changed since the statistics were counted. Show the statistics again to refresh them.", 8000);
+			return;
+		}
+		const from = view.editor.offsetToPos(o.start);
+		const to = view.editor.offsetToPos(o.end);
 		view.editor.setSelection(from, to);
 		view.editor.scrollIntoView({ from, to }, true);
 	}
@@ -433,6 +454,21 @@ export class BookHarnessView extends ItemView {
 					}),
 				),
 			addTodo: () => new PromptModal(this.app, "Add a to-do", "To do", "", (v) => run(addManualTodo(vault, book, v))).open(),
+			toggleStatistics: () => {
+				if (this.statistics?.bookId === book.id) {
+					this.statistics = null;
+					return this.markDirty();
+				}
+				run(
+					(async () => {
+						const items = [];
+						for (const c of readingOrder(chapters)) if (c.notePath !== null && vault.exists(c.notePath)) items.push({ id: c.id, designation: c.designation, text: await vault.read(c.notePath) });
+						const known = activeEntities((await listAllEntities(vault, book)).entities).flatMap((e) => [e.name, ...e.aliases]).flatMap((n) => n.split(/\s+/));
+						this.statistics = { bookId: book.id, data: analyzeBook(items, { language: book.primaryLanguage, ignore: new Set(known) }) };
+					})(),
+				);
+			},
+			openOccurrence: (o, word) => void this.openOccurrence(chapters, o, word),
 			exportEpub: () =>
 				void (async () => {
 					const items = await Promise.all(readingOrder(chapters).map(async (chapter) => ({ chapter, text: chapter.notePath !== null && vault.exists(chapter.notePath) ? await vault.read(chapter.notePath) : null })));

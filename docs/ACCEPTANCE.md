@@ -61,7 +61,7 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 | ID | Scenario | Types | Phase | Status |
 |---|---|---|---|---|
 | AC-W-1 | Character depth analysis yields specific evidence-linked findings and optional localized proposals; Find Contradictions retrieves conflicting passages and permits dismissal/intentional classification or reviewed correction. | M, R | 9 | Not started |
-| AC-W-2 | Word counts and distributions match known fixtures; repeated adjectives identified language-aware (capability table honest); synonyms occurrence-specific, never replacing text without approval. | U, M | 9 | Not started |
+| AC-W-2 | Word counts and distributions match known fixtures; repeated adjectives identified language-aware (capability table honest); synonyms occurrence-specific, never replacing text without approval. | U, M | 9 | Partial: word counts, frequency, clusters and phrases tested on small fixtures (not on the synthetic book at scale); adjective capability table honest (heuristic en/de, unavailable cs/sk); synonyms not built |
 | AC-W-3 | With no model endpoint reachable, all non-AI features (structure, statistics where feasible, timeline calculation, TODOs, publishing) work. | I, E | 2–12 | Not started |
 
 ## Translation

@@ -1206,3 +1206,45 @@ describe("BookHarnessView export", () => {
 		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("disk full"));
 	});
 });
+
+describe("BookHarnessView statistics", () => {
+	it("shows counted statistics on request, leaves recorded names out, jumps to a place and warns when the chapter changed", async () => {
+		const { fake, view, store, vault, book } = await setup();
+		const { createEntity } = await import("../core/entities");
+		await createEntity(vault, book, [], { type: "character", name: "Zorblax Quill" }, counterRandom());
+		store.set("Book/one.md", "The lamp burned. Zorblax Quill saw the lamp, and the lamp burned low. The lamp burned again; the lamp burned on, the lamp burned.");
+		store.delete("Book/two.md");
+		await addChapter(vault, book, [], { designation: "Epilogue" }, counterRandom());
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Show statistics"));
+		button(view, "Show statistics").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Statistics ("));
+		expect(text(view)).toContain("lamp: 6 (");
+		expect(text(view)).toContain("lamp: 6 times within");
+		expect(text(view)).toContain("“the lamp burned”: 5 times");
+		expect(text(view)).not.toContain("zorblax:");
+		expect(text(view)).toContain("no AI is used");
+		expect(text(view)).toContain("Adjectives (a guess)");
+		const selected: Array<[unknown, unknown]> = [];
+		const editor = { getValue: () => store.get("Book/one.md")!, offsetToPos: (n: number) => n, setSelection: (a: unknown, b: unknown) => selected.push([a, b]), scrollIntoView: vi.fn() };
+		(fake.leaf as unknown as { view: unknown }).view = Object.assign(new MarkdownView(), { editor });
+		const first = view.contentEl.querySelector('button[aria-label^="Show “lamp”, 1 of 6"]') as HTMLButtonElement;
+		first.click();
+		await vi.waitFor(() => expect(selected).toEqual([[4, 8]]));
+		store.set("Book/one.md", "Everything is different now, nothing the same.");
+		first.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("changed since the statistics"));
+		(fake.leaf as unknown as { view: unknown }).view = {};
+		first.click();
+		store.delete("Book/one.md");
+		first.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That chapter has no note to open."));
+		(view.contentEl.querySelector('button[aria-label="Unlink the note from Chapter 1"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(view.contentEl.querySelector('button[aria-label="Unlink the note from Chapter 1"]')).toBeNull());
+		(view.contentEl.querySelector('button[aria-label^="Show “lamp”, 1 of 6"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That chapter has no note to open."));
+		button(view, "Hide statistics").click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Statistics ("));
+	});
+});

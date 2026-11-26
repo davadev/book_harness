@@ -1,3 +1,4 @@
+import type { BookStatistics, Occurrence, WordRow } from "../core/stats/statistics";
 import type { TimelineRow, TimelineView } from "../core/temporal/timeline";
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
@@ -41,6 +42,8 @@ export interface BookActions {
 	addTodo(): void;
 	addEvent(): void;
 	exportEpub(): void;
+	toggleStatistics(): void;
+	openOccurrence(o: Occurrence, word: string): void;
 	addTimeRelation(): void;
 	removeStatement(id: string): void;
 	removeEvent(id: string): void;
@@ -245,6 +248,52 @@ function renderTimeline(root: HTMLElement, view: TimelineView, actions: BookActi
 	}
 }
 
+function occurrenceButtons(parent: HTMLElement, word: string, occurrences: readonly Occurrence[], total: number, actions: BookActions): void {
+	const shown = occurrences.slice(0, 5);
+	shown.forEach((o, i) => parent.createEl("button", { cls: "bh-icon-button", text: String(i + 1), attr: { "aria-label": `Show “${word}”, ${i + 1} of ${total}, in ${o.designation}` } }).addEventListener("click", () => actions.openOccurrence(o, word)));
+}
+
+function wordRows(box: HTMLElement, rows: readonly WordRow[], actions: BookActions): void {
+	const list = box.createEl("ul");
+	for (const r of rows) {
+		const li = list.createEl("li");
+		li.createSpan({ text: `${r.word}: ${r.count} (${r.per1000} per 1,000 words, in ${r.chapters} chapter${r.chapters === 1 ? "" : "s"}) ` });
+		occurrenceButtons(li, r.word, r.occurrences, r.count, actions);
+	}
+}
+
+function renderStatistics(root: HTMLElement, stats: BookStatistics, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-statistics" });
+	box.createEl("h4", { text: `Statistics (${stats.totalWords.toLocaleString("en-US")} words, ${stats.uniqueWords.toLocaleString("en-US")} different)` });
+	box.createDiv({ cls: "bh-note", text: "Counted from your text on this device; no AI is used. A word used often is not a fault. Names of characters, places and objects you have recorded are left out of the word lists. Sentence counts are approximate." });
+	box.createEl("h5", { text: "Chapters" });
+	const chapters = box.createEl("ul");
+	for (const c of stats.chapters) chapters.createEl("li", { text: `${c.designation}: ${c.words.toLocaleString("en-US")} words, ${c.sentences} sentences (average ${c.averageSentence} words, longest ${c.longestSentence}), ${c.paragraphs} paragraphs` });
+	if (!stats.stopwords) box.createDiv({ cls: "bh-callout", text: `There is no list of common words for “${stats.language}”, so words like “the” or “und” appear in the lists below.` });
+	box.createEl("h5", { text: "Most used words" });
+	if (stats.frequent.length === 0) box.createDiv({ cls: "bh-note", text: "No words to show yet." });
+	wordRows(box, stats.frequent, actions);
+	box.createEl("h5", { text: "Words used many times close together" });
+	if (stats.clusters.length === 0) box.createDiv({ cls: "bh-note", text: "None found." });
+	const clusters = box.createEl("ul");
+	for (const c of stats.clusters) {
+		const li = clusters.createEl("li");
+		li.createSpan({ text: `${c.word}: ${c.count} times within ${c.span} words, in ${c.first.designation} ` });
+		occurrenceButtons(li, c.word, c.occurrences, c.count, actions);
+	}
+	box.createEl("h5", { text: "Phrases that repeat" });
+	if (stats.phrases.length === 0) box.createDiv({ cls: "bh-note", text: "None found." });
+	const phrases = box.createEl("ul");
+	for (const p of stats.phrases) {
+		const li = phrases.createEl("li");
+		li.createSpan({ text: `“${p.phrase}”: ${p.count} times ` });
+		occurrenceButtons(li, p.phrase, p.occurrences, p.count, actions);
+	}
+	box.createEl("h5", { text: stats.adjectives.support.mode === "heuristic" ? "Adjectives (a guess)" : "Adjectives" });
+	box.createDiv({ cls: "bh-note", text: stats.adjectives.support.note });
+	if (stats.adjectives.support.mode === "heuristic") wordRows(box, stats.adjectives.rows, actions);
+}
+
 function statsLine(stats: ChapterStats): string {
 	const words = stats.words === null ? "Not counted yet" : `${stats.words.toLocaleString("en-US")} words`;
 	const state = { current: "", stale: " (out of date: the text changed since it was counted)", not_processed: "", failed: " (last count failed)", canceled: " (last count was canceled)" }[stats.status];
@@ -288,6 +337,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
 	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
+	bar.createEl("button", { cls: "bh-button", text: overview?.statistics ? "Hide statistics" : "Show statistics" }).addEventListener("click", () => bookActions.toggleStatistics());
 	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub());
 	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
 	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());
@@ -319,6 +369,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	}
 	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
 	if (overview.timeline) renderTimeline(root, overview.timeline, bookActions);
+	if (overview.statistics) renderStatistics(root, overview.statistics, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });
 		box.createEl("h4", { text: `To do (${overview.todos.length})` });

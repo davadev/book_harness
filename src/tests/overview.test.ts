@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -407,5 +407,37 @@ describe("timeline rendering", () => {
 		expect(text()).toContain("Timeline (2 events)");
 		expect(text()).toContain("possibly 1923-10-31");
 		expect(text()).toContain("2 pairs of events");
+	});
+});
+
+describe("statistics rendering", () => {
+	const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+	const occ = (start: number) => ({ chapterId: "c1", designation: "Chapter 1", start, end: start + 4 });
+	const row = (word: string, count: number, chapters = 1) => ({ word, count, per1000: 12.5, chapters, occurrences: Array.from({ length: Math.min(count, 7) }, (_, i) => occ(i * 10)) });
+	const base = { language: "en", stopwords: true, totalWords: 1000, uniqueWords: 400, chapters: [{ id: "c1", designation: "Chapter 1", words: 1000, unique: 400, sentences: 80, averageSentence: 12.5, longestSentence: 40, paragraphs: 30 }], frequent: [row("lamp", 9, 2)], clusters: [{ word: "lamp", count: 5, span: 120, first: occ(0), occurrences: [occ(0), occ(10)] }], phrases: [{ phrase: "the lamp burned", count: 3, occurrences: [occ(0)] }], adjectives: { support: { mode: "heuristic" as const, note: "A guess." }, rows: [row("dark", 4)] } };
+
+	it("shows the counts, the labelled adjective guess and buttons that jump to a place", () => {
+		const a = actions();
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), statistics: base }, a);
+		expect(text()).toContain("Statistics (1,000 words, 400 different)");
+		expect(text()).toContain("lamp: 9 (12.5 per 1,000 words, in 2 chapters)");
+		expect(text()).toContain("dark: 4 (12.5 per 1,000 words, in 1 chapter)");
+		expect(text()).toContain("Adjectives (a guess)");
+		expect(text()).toContain("“the lamp burned”: 3 times");
+		expect(root.querySelectorAll('button[aria-label^="Show “lamp”, "]').length).toBe(5 + 2 /* frequent (capped at 5) + cluster */);
+		(root.querySelector('button[aria-label="Show “lamp”, 2 of 9, in Chapter 1"]') as HTMLButtonElement).click();
+		expect(a.openOccurrence).toHaveBeenCalledWith(occ(10), "lamp");
+		click("Hide statistics");
+		expect(a.toggleStatistics).toHaveBeenCalled();
+	});
+	it("says plainly when nothing was found, when a language has no common-word list and no adjective guess", () => {
+		const a = actions();
+		const empty = { ...base, stopwords: false, language: "cs", frequent: [], clusters: [], phrases: [], adjectives: { support: { mode: "unavailable" as const, note: "Nothing is guessed." }, rows: [] } };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), statistics: empty }, a);
+		expect(text()).toContain("No words to show yet.");
+		expect(text()).toContain("There is no list of common words for “cs”");
+		expect(text().match(/None found\./g)).toHaveLength(2);
+		expect(text()).toContain("Nothing is guessed.");
+		expect(text()).not.toContain("(a guess)");
 	});
 });
