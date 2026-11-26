@@ -1,4 +1,4 @@
-import { CHAPTER_STATUSES, type ChapterStatus } from "../core/chapters";
+import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Overview, PanelContext } from "../core/panel-model";
 
@@ -63,12 +63,18 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
 
 	if (!overview) return;
-	if (overview.conflicts.length > 0) {
-		const box = root.createDiv({ cls: "bh-callout" });
-		box.createEl("strong", { text: "Needs your decision" });
-		for (const c of overview.conflicts) box.createDiv({ text: c.detail });
+	if (overview.todos.length > 0) {
+		const box = root.createDiv({ cls: "bh-todos" });
+		box.createEl("h4", { text: `To do (${overview.todos.length})` });
+		const items = box.createEl("ul");
+		for (const t of overview.todos) {
+			const li = items.createEl("li", { cls: `bh-todo bh-${t.severity}` });
+			li.createSpan({ cls: "bh-badge", text: t.severity === "required" ? "Required" : "Note" });
+			const notePath = t.notePath;
+			if (notePath === undefined) li.createSpan({ text: ` ${t.message}` });
+			else li.createEl("button", { cls: "bh-link", text: t.message }).addEventListener("click", () => bookActions.openNote(notePath));
+		}
 	}
-	if (overview.gaps.length > 0) root.createDiv({ cls: "bh-note", text: `Missing numbers: ${overview.gaps.join(", ")}.` });
 	if (overview.rows.length === 0) {
 		root.createEl("p", { cls: "bh-empty", text: "No chapters yet. Open a manuscript note and make it a chapter, or plan one." });
 		return;

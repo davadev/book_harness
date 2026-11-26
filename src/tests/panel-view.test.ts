@@ -159,7 +159,7 @@ describe("BookHarnessView", () => {
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
 		await vi.waitFor(() => expect(text(view)).toContain("Chapter 2"));
-		const rows = () => Array.from(view.contentEl.querySelectorAll("li")) as HTMLElement[];
+		const rows = () => Array.from(view.contentEl.querySelectorAll(".bh-chapter")) as HTMLElement[];
 		const record = (designation: string) => [...store].find(([p, t]) => p.includes("/chapters/") && t.includes(`designation: ${designation}`))?.[1] ?? "";
 
 		button(view, "Chapter 2", rows()[1]).click();
@@ -199,7 +199,7 @@ describe("BookHarnessView", () => {
 		submit("Chapter 3");
 		await vi.waitFor(() => expect([...store.values()].some((t) => t.includes("note_path: Book/loose.md"))).toBe(true));
 		await vi.waitFor(() => expect(text(view)).toContain("Epilogue"));
-		button(view, "Rename", Array.from(view.contentEl.querySelectorAll("li")).find((l) => l.textContent?.includes("Epilogue")) as HTMLElement).click();
+		button(view, "Rename", Array.from(view.contentEl.querySelectorAll(".bh-chapter")).find((l) => l.textContent?.includes("Epilogue")) as HTMLElement).click();
 		submit("Chapter 3");
 		await vi.waitFor(() => expect(Notice.instances.some((n) => /already a chapter/.test(n.message))).toBe(true));
 		expect(PromptModal).toBeDefined();
@@ -234,8 +234,8 @@ describe("BookHarnessView edge cases", () => {
 		for (const [p, t] of store) if (p.includes("/chapters/")) store.set(p, t.replace(/order: \d+/, "order: 5"));
 		fake.state.active = "Book/one.md";
 		await view.onOpen();
-		await vi.waitFor(() => expect(text(view)).toContain("Needs your decision"));
-		const last = Array.from(view.contentEl.querySelectorAll("li")).at(-1) as HTMLElement;
+		await vi.waitFor(() => expect(text(view)).toContain("Order 5 is used by"));
+		const last = Array.from(view.contentEl.querySelectorAll(".bh-chapter")).at(-1) as HTMLElement;
 		button(view, "Up", last).click();
 		expect(Notice.instances.at(-1)?.message).toMatch(/share an order value/);
 	});

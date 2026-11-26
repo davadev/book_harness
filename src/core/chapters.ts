@@ -2,9 +2,7 @@ import { MANAGED_FOLDER, bookForPath, type Book } from "./books";
 import { isId, newId, type RandomPort } from "./ids";
 import { ManagedNoteError, parseManagedNote, serializeManagedNote } from "./managed-note";
 import type { VaultPort } from "./ports";
-
-export const CHAPTER_STATUSES = ["planned", "drafting", "written", "revising", "finalized"] as const;
-export type ChapterStatus = (typeof CHAPTER_STATUSES)[number];
+import { isChapterStatus, type ChapterStatus } from "./status";
 
 const CHAPTER_SCHEMA = 1;
 const ORDER_STEP = 1000;
@@ -32,10 +30,6 @@ export interface ChapterProblem {
 
 export const chaptersFolder = (book: Book): string => `${book.folder}/${MANAGED_FOLDER}/chapters`;
 export const chapterPath = (book: Book, id: string): string => `${chaptersFolder(book)}/${id}.md`;
-
-export function isChapterStatus(value: unknown): value is ChapterStatus {
-	return typeof value === "string" && (CHAPTER_STATUSES as readonly string[]).includes(value);
-}
 
 function serialize(c: Chapter): string {
 	return serializeManagedNote({

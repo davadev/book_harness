@@ -63,6 +63,16 @@ describe("book discovery and isolation", () => {
 		await expect(registerBook(vault, "Series/Vol 2", "Vol 2", "en", rnd)).resolves.toMatchObject({ title: "Vol 2" });
 	});
 
+	it("defaults the completion requirement and rejects an invalid one", async () => {
+		const note = (extra: string) => `---\nbh_schema: 1\nbh_type: book\nbh_id: bk_aaaaaaaaaaaaaaaa\ntitle: T\nprimary_language: en\n${extra}---\n`;
+		const ok = new FakeVault({ "A/_book-harness/book.md": note("") });
+		expect((await listBooks(ok)).books[0]?.completion).toEqual({ chapterStatus: "finalized" });
+		const set = new FakeVault({ "A/_book-harness/book.md": note("completion_chapter_status: written\n") });
+		expect((await listBooks(set)).books[0]?.completion).toEqual({ chapterStatus: "written" });
+		const bad = new FakeVault({ "A/_book-harness/book.md": note("completion_chapter_status: done\n") });
+		expect((await listBooks(bad)).problems[0]?.reason).toBe("Completion chapter status is invalid.");
+	});
+
 	it("treats a missing target language list as empty", async () => {
 		const vault = new FakeVault({ "A/_book-harness/book.md": `---\nbh_schema: 1\nbh_type: book\nbh_id: bk_aaaaaaaaaaaaaaaa\ntitle: T\nprimary_language: en\n---\n` });
 		expect((await listBooks(vault)).books[0]?.targetLanguages).toEqual([]);

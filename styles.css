@@ -94,3 +94,18 @@
 	min-height: 44px;
 	max-width: 100%;
 }
+
+.bh-todos h4 {
+	margin: var(--size-4-3) 0 var(--size-4-1);
+}
+
+.bh-todos ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.bh-todo {
+	overflow-wrap: anywhere;
+	padding: var(--size-4-1) 0;
+}

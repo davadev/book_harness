@@ -1,5 +1,6 @@
 import { bookForPath, type Book } from "./books";
-import { findConflicts, findGaps, readingOrder, type Chapter, type ChapterConflict } from "./chapters";
+import { readingOrder, type Chapter } from "./chapters";
+import { deriveTodos, type Todo } from "./todos";
 
 /** What the side panel should show for the note that is open. Pure so every case is table-testable. */
 export type PanelContext =
@@ -18,9 +19,8 @@ export interface OverviewRow {
 
 export interface Overview {
 	rows: OverviewRow[];
-	gaps: number[];
-	conflicts: ChapterConflict[];
-	plannedWithoutFile: number;
+	/** Required items first, each group in reading order. */
+	todos: Todo[];
 }
 
 export function resolveContext(books: readonly Book[], activePath: string | null, chapters: readonly Chapter[]): PanelContext {
@@ -34,8 +34,9 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 	return { kind: "book", book, activePath, role, chapterId: chapter?.id ?? null };
 }
 
-export function buildOverview(chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean): Overview {
 	const ordered = readingOrder(chapters);
+	const todos = deriveTodos(book, chapters, exists);
 	return {
 		rows: ordered.map((chapter, i) => ({
 			chapter,
@@ -44,9 +45,7 @@ export function buildOverview(chapters: readonly Chapter[], activePath: string |
 			isFirst: i === 0,
 			isLast: i === ordered.length - 1,
 		})),
-		gaps: findGaps(chapters),
-		conflicts: findConflicts(chapters),
-		plannedWithoutFile: chapters.filter((c) => c.notePath === null).length,
+		todos: [...todos.filter((t) => t.severity === "required"), ...todos.filter((t) => t.severity === "info")],
 	};
 }
 

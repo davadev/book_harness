@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { registerBook, type Book } from "../core/books";
-import { addChapter, bindNote, chapterPath, findConflicts, findGaps, followRename, isChapterStatus, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
+import { addChapter, bindNote, chapterPath, findConflicts, findGaps, followRename, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
+import { isChapterStatus } from "../core/status";
 import { GuardedVault } from "../core/guarded-vault";
 import { FakeVault, counterRandom } from "./__mocks__/fakeVault";
 

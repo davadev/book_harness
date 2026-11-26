@@ -6,7 +6,7 @@ import { buildOverview, type PanelContext } from "../core/panel-model";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { installObsidianDom } from "./__mocks__/obsidianDom";
 
-const book: Book = { id: "bk1", folder: "A", title: "My Book", primaryLanguage: "en", targetLanguages: ["de", "cs"] };
+const book: Book = { id: "bk1", folder: "A", title: "My Book", primaryLanguage: "en", targetLanguages: ["de", "cs"], completion: { chapterStatus: "finalized" } };
 const ch = (id: string, designation: string, order: number, notePath: string | null): Chapter => ({ id, bookId: "bk1", designation, order, status: "drafting", notePath, path: id });
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
@@ -53,7 +53,7 @@ describe("overview rendering", () => {
 	it("shows an empty book with the right actions for a plain manuscript note", () => {
 		const a = actions();
 		const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
-		renderOverview(root, ctx, buildOverview([], "A/x.md", () => true), a);
+		renderOverview(root, ctx, buildOverview(book, [], "A/x.md", () => true), a);
 		expect(text()).toContain("My Book");
 		expect(text()).toContain("en → de, cs");
 		expect(text()).toContain("No chapters yet");
@@ -65,7 +65,7 @@ describe("overview rendering", () => {
 
 	it("omits the promote button when the note is already a chapter and shows no language arrow for one language", () => {
 		const ctx: PanelContext = { kind: "book", book: { ...book, targetLanguages: [] }, activePath: "A/a.md", role: "chapter", chapterId: "a" };
-		renderOverview(root, ctx, buildOverview([ch("a", "Chapter 1", 1, "A/a.md")], "A/a.md", () => true), actions());
+		renderOverview(root, ctx, buildOverview(book, [ch("a", "Chapter 1", 1, "A/a.md")], "A/a.md", () => true), actions());
 		expect(text()).not.toContain("Make this note a chapter");
 		expect(text()).toContain("en");
 		expect(text()).not.toContain("→");
@@ -76,13 +76,14 @@ describe("overview rendering", () => {
 		const a = actions();
 		const chapters = [ch("b", "Chapter 3", 2, "A/b.md"), ch("a", "Chapter 1", 1, "A/a.md"), ch("p", "Chapter 5", 3, null), ch("m", "Chapter 9", 4, "A/gone.md")];
 		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
-		renderOverview(root, ctx, buildOverview(chapters, null, (p) => p !== "A/gone.md"), a);
-		const items = Array.from(root.querySelectorAll("li")).map((li) => li.querySelector("button")?.textContent);
+		renderOverview(root, ctx, buildOverview(book, chapters, null, (p) => p !== "A/gone.md"), a);
+		const items = Array.from(root.querySelectorAll(".bh-chapter")).map((li) => li.querySelector("button")?.textContent);
 		expect(items).toEqual(["Chapter 1", "Chapter 3", "Chapter 5", "Chapter 9"]);
-		expect(text()).toContain("Missing numbers: 2, 4, 6, 7, 8.");
+		expect(text()).toContain("To do (");
+		expect(text()).toContain('There is no "Chapter 2"');
 		expect(text()).toContain("No file yet");
 		expect(text()).toContain("Note not found");
-		const first = root.querySelector("li") as HTMLElement;
+		const first = root.querySelector(".bh-chapter") as HTMLElement;
 		(first.querySelector(".bh-link") as HTMLButtonElement).click();
 		expect(a.openNote).toHaveBeenCalledWith("A/a.md");
 		const select = first.querySelector("select") as HTMLSelectElement;
@@ -98,7 +99,7 @@ describe("overview rendering", () => {
 		expect(a.rename).toHaveBeenCalledWith("a", "Chapter 1");
 		btn(first, "Unlink").click();
 		expect(a.unbind).toHaveBeenCalledWith("a");
-		const lis = Array.from(root.querySelectorAll("li"));
+		const lis = Array.from(root.querySelectorAll(".bh-chapter"));
 		expect(btn(lis[3]!, "Down").disabled).toBe(true);
 		btn(lis[3]!, "Up").click();
 		expect(a.move).toHaveBeenCalledWith("m", "up");
@@ -109,11 +110,29 @@ describe("overview rendering", () => {
 		expect(a.openNote).toHaveBeenCalledTimes(1);
 	});
 
+	it("lists to-dos, required first, and opens the note for one that has a note", () => {
+		const a = actions();
+		const chapters = [ch("a", "Chapter 1", 1, "A/a.md"), ch("b", "Chapter 2", 2, null)];
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		renderOverview(root, ctx, buildOverview(book, chapters, null, () => true), a);
+		const items = Array.from(root.querySelectorAll(".bh-todo")).map((li) => li.textContent);
+		expect(items).toEqual(["RequiredChapter 1 is drafting; this book requires finalized.", "Required Chapter 2 has no manuscript note yet."]);
+		(root.querySelector(".bh-todo button") as HTMLButtonElement).click();
+		expect(a.openNote).toHaveBeenCalledWith("A/a.md");
+		expect(root.querySelector(".bh-info")).toBeNull();
+	});
+
+	it("labels informational notes differently from requirements", () => {
+		const chapters = [ch("a", "Chapter 1", 1, null), ch("c", "Chapter 3", 3, null)];
+		const ctx = { kind: "book", book: { ...book, completion: { chapterStatus: "planned" as const } }, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		renderOverview(root, ctx, buildOverview(ctx.book, chapters, null, () => true), actions());
+		expect(root.querySelector(".bh-info")?.textContent).toContain("Note");
+	});
+
 	it("lists conflicts the author must resolve", () => {
 		const chapters = [ch("a", "One", 1, null), ch("b", "One", 1, null)];
 		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
-		renderOverview(root, ctx, buildOverview(chapters, null, () => true), actions());
-		expect(text()).toContain("Needs your decision");
+		renderOverview(root, ctx, buildOverview(book, chapters, null, () => true), actions());
 		expect(text()).toContain("Order 1 is used by");
 	});
 

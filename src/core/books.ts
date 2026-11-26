@@ -1,6 +1,7 @@
 import { isId, newId, type RandomPort } from "./ids";
 import { ManagedNoteError, parseManagedNote, serializeManagedNote, type ManagedNote } from "./managed-note";
 import type { VaultPort } from "./ports";
+import { isChapterStatus, type ChapterStatus } from "./status";
 
 export const MANAGED_FOLDER = "_book-harness";
 export const BOOK_NOTE = "book.md";
@@ -14,6 +15,8 @@ export interface Book {
 	title: string;
 	primaryLanguage: string;
 	targetLanguages: string[];
+	/** Completion requirements the author configured. Defaults apply when a property is absent. */
+	completion: { chapterStatus: ChapterStatus };
 }
 
 export interface BookProblem {
@@ -29,6 +32,8 @@ export function isLanguageCode(value: unknown): value is string {
 	return typeof value === "string" && LANGUAGE.test(value);
 }
 
+export const DEFAULT_COMPLETION: Book["completion"] = { chapterStatus: "finalized" };
+
 function toNote(book: Omit<Book, "folder">): ManagedNote {
 	return {
 		frontmatter: {
@@ -39,6 +44,7 @@ function toNote(book: Omit<Book, "folder">): ManagedNote {
 			title: book.title,
 			primary_language: book.primaryLanguage,
 			target_languages: book.targetLanguages,
+			completion_chapter_status: book.completion.chapterStatus,
 		},
 		body: `# ${book.title}\n\nBook Harness configuration. Edit the properties above; the plugin keeps everything else in this folder.\n`,
 	};
@@ -53,7 +59,9 @@ function fromNote(folder: string, note: ManagedNote): Book {
 	if (!isLanguageCode(fm.primary_language)) throw new ManagedNoteError("Primary language is invalid.");
 	const targets: unknown = fm.target_languages ?? [];
 	if (!Array.isArray(targets) || !targets.every(isLanguageCode)) throw new ManagedNoteError("Target languages are invalid.");
-	return { id: fm.bh_id, folder, title: fm.title.trim(), primaryLanguage: fm.primary_language, targetLanguages: [...new Set(targets)].filter((l) => l !== fm.primary_language) };
+	const chapterStatus: unknown = fm.completion_chapter_status ?? DEFAULT_COMPLETION.chapterStatus;
+	if (!isChapterStatus(chapterStatus)) throw new ManagedNoteError("Completion chapter status is invalid.");
+	return { id: fm.bh_id, folder, title: fm.title.trim(), primaryLanguage: fm.primary_language, targetLanguages: [...new Set(targets)].filter((l) => l !== fm.primary_language), completion: { chapterStatus } };
 }
 
 /** Register a folder as a book. Writes only inside the managed folder; never touches manuscript notes. */
@@ -68,7 +76,7 @@ export async function registerBook(vault: VaultPort, folder: string, title: stri
 	const cleanTitle = title.trim();
 	if (cleanTitle === "") throw new Error("A book needs a title.");
 	if (!isLanguageCode(primaryLanguage)) throw new Error("Primary language must be a language code such as en, de or cs.");
-	const book = { id: newId("bk", random), title: cleanTitle, primaryLanguage, targetLanguages: [] as string[] };
+	const book = { id: newId("bk", random), title: cleanTitle, primaryLanguage, targetLanguages: [] as string[], completion: { ...DEFAULT_COMPLETION } };
 	await vault.create(path, serializeManagedNote(toNote(book)));
 	return { ...book, folder };
 }

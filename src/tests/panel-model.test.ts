@@ -3,7 +3,7 @@ import type { Book } from "../core/books";
 import type { Chapter } from "../core/chapters";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
 
-const book = (id: string, folder: string): Book => ({ id, folder, title: id, primaryLanguage: "en", targetLanguages: [] });
+const book = (id: string, folder: string): Book => ({ id, folder, title: id, primaryLanguage: "en", targetLanguages: [], completion: { chapterStatus: "written" } });
 const ch = (id: string, order: number, notePath: string | null, bookId = "bk1", designation = id): Chapter => ({ id, bookId, designation, order, status: "drafting", notePath, path: id });
 
 describe("resolveContext", () => {
@@ -28,16 +28,15 @@ describe("resolveContext", () => {
 describe("buildOverview", () => {
 	it("orders rows, flags the open note, missing notes, planned slots and gaps", () => {
 		const chapters = [ch("b", 2, "A/b.md", "bk1", "Chapter 3"), ch("a", 1, "A/a.md", "bk1", "Chapter 1"), ch("p", 3, null, "bk1", "Chapter 5")];
-		const o = buildOverview(chapters, "A/a.md", (p) => p !== "A/b.md");
+		const o = buildOverview(book("bk1", "A"), chapters, "A/a.md", (p) => p !== "A/b.md");
 		expect(o.rows.map((r) => [r.chapter.id, r.isActive, r.missingNote, r.isFirst, r.isLast])).toEqual([
 			["a", true, false, true, false],
 			["b", false, true, false, false],
 			["p", false, false, false, true],
 		]);
-		expect(o.gaps).toEqual([2, 4]);
-		expect(o.plannedWithoutFile).toBe(1);
-		expect(buildOverview([], null, () => true).rows).toEqual([]);
-		expect(buildOverview(chapters, null, () => true).rows.some((r) => r.isActive)).toBe(false);
+		expect(o.todos.map((t) => t.id)).toEqual(["chapter-unfinished:a", "chapter-note-missing:b", "chapter-no-file:p", "chapter-gap:2", "chapter-gap:4"]);
+		expect(buildOverview(book("bk1", "A"), [], null, () => true).rows).toEqual([]);
+		expect(buildOverview(book("bk1", "A"), chapters, null, () => true).rows.some((r) => r.isActive)).toBe(false);
 	});
 });
 

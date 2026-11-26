@@ -1,6 +1,7 @@
 import { ItemView, Notice, TFile, type WorkspaceLeaf } from "obsidian";
 import { listBooks, type Book } from "../core/books";
-import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter, type ChapterStatus } from "../core/chapters";
+import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
+import type { ChapterStatus } from "../core/status";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
@@ -75,7 +76,7 @@ export class BookHarnessView extends ItemView {
 			const problems = [...bookProblems, ...loaded.flatMap((r) => r.problems)].map((p) => `${p.path}: ${p.reason}`);
 			const ctx = resolveContext(books, active, chapters);
 			const book = ctx.kind === "book" ? ctx.book : null;
-			const overview = book ? buildOverview(chapters.filter((c) => c.bookId === book.id), active, (p) => vault.exists(p)) : null;
+			const overview = book ? buildOverview(book, chapters.filter((c) => c.bookId === book.id), active, (p) => vault.exists(p)) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
