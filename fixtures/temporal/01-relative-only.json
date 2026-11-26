@@ -1,0 +1,36 @@
+{
+ "description": "A before B, and C three days after B, with no dates: order is kept, nothing is dated (AC-T-1).",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "kind": "before",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "kind": "after_by",
+   "a": "B",
+   "b": "C",
+   "by": "3 days"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "B"
+   ],
+   [
+    "B",
+    "C"
+   ]
+  ],
+  "unordered": [],
+  "dated": []
+ }
+}

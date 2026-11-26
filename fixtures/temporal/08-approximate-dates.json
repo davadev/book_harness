@@ -1,0 +1,45 @@
+{
+ "description": "A year-only date is the whole year: two events in 1923 are unordered, an event in 1923 and one in 1925 are ordered, and nothing is treated as 1 January.",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "kind": "date",
+   "a": "A",
+   "date": "1923"
+  },
+  {
+   "kind": "date",
+   "a": "B",
+   "date": "1923"
+  },
+  {
+   "kind": "date",
+   "a": "C",
+   "date": "1925"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "C"
+   ],
+   [
+    "B",
+    "C"
+   ]
+  ],
+  "unordered": [
+   [
+    "A",
+    "B"
+   ]
+  ],
+  "dated": []
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "description": "Control: the same story with the traveller as ONE point must be reported as a contradiction, which is why instances exist.",
+ "points": [
+  "Edmund-meets-himself",
+  "Edmund-departs"
+ ],
+ "statements": [
+  {
+   "kind": "date",
+   "a": "Edmund-departs",
+   "date": "1923-10-31"
+  },
+  {
+   "kind": "date",
+   "a": "Edmund-meets-himself",
+   "date": "1893-05-01"
+  },
+  {
+   "kind": "before",
+   "a": "Edmund-departs",
+   "b": "Edmund-meets-himself"
+  }
+ ],
+ "expect": {
+  "conflict": true
+ }
+}

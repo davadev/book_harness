@@ -1,0 +1,36 @@
+{
+ "description": "The same book after the author removes statement s3: the conflict is gone and the order is back.",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "id": "s1",
+   "kind": "before",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "id": "s2",
+   "kind": "before",
+   "a": "B",
+   "b": "C"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "B"
+   ],
+   [
+    "B",
+    "C"
+   ]
+  ],
+  "unordered": []
+ }
+}

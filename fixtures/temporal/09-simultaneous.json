@@ -1,0 +1,34 @@
+{
+ "description": "Events at the same time are neither before nor after each other.",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "kind": "same",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "kind": "before",
+   "a": "B",
+   "b": "C"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "C"
+   ],
+   [
+    "B",
+    "C"
+   ]
+  ],
+  "unordered": []
+ }
+}

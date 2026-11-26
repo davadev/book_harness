@@ -1,0 +1,60 @@
+{
+ "description": "A traveller is two points in world time (young and old). The old one visits the young one in 1893 (same moment as the young one meets him) and departs in 1923: no contradiction, although in the book the old man appears first (AC-T-2).",
+ "points": [
+  "Edmund#young-born",
+  "Edmund#young-meets-old",
+  "Edmund#old-departs",
+  "Edmund#old-meets-young"
+ ],
+ "statements": [
+  {
+   "kind": "date",
+   "a": "Edmund#young-born",
+   "date": "1880"
+  },
+  {
+   "kind": "date",
+   "a": "Edmund#old-departs",
+   "date": "1923-10-31"
+  },
+  {
+   "kind": "date",
+   "a": "Edmund#young-meets-old",
+   "date": "1893-05-01"
+  },
+  {
+   "kind": "same",
+   "a": "Edmund#young-meets-old",
+   "b": "Edmund#old-meets-young"
+  },
+  {
+   "kind": "before",
+   "a": "Edmund#young-born",
+   "b": "Edmund#young-meets-old"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "span": {
+   "Edmund#old-meets-young": "1893-05-01"
+  },
+  "before": [
+   [
+    "Edmund#old-meets-young",
+    "Edmund#old-departs"
+   ],
+   [
+    "Edmund#young-born",
+    "Edmund#old-meets-young"
+   ],
+   [
+    "Edmund#young-born",
+    "Edmund#young-meets-old"
+   ],
+   [
+    "Edmund#young-meets-old",
+    "Edmund#old-departs"
+   ]
+  ]
+ }
+}

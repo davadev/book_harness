@@ -1,0 +1,44 @@
+{
+ "description": "The same events with B on 1923-10-31 (a whole day): C is derived as 1923-11-03; A is only known to be before.",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "kind": "before",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "kind": "after_by",
+   "a": "B",
+   "b": "C",
+   "by": "3 days"
+  },
+  {
+   "kind": "date",
+   "a": "B",
+   "date": "1923-10-31"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "B"
+   ],
+   [
+    "B",
+    "C"
+   ]
+  ],
+  "unordered": [],
+  "span": {
+   "B": "1923-10-31",
+   "C": "1923-11-03"
+  }
+ }
+}

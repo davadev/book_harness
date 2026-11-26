@@ -1,0 +1,18 @@
+{
+ "description": "'Two months after' cannot be calculated (months vary in length): the statement is refused, never converted by guessing.",
+ "points": [
+  "A",
+  "B"
+ ],
+ "statements": [
+  {
+   "kind": "after_by",
+   "a": "A",
+   "b": "B",
+   "by": "2 months"
+  }
+ ],
+ "expect": {
+  "refused": true
+ }
+}

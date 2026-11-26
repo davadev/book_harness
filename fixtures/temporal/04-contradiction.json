@@ -1,0 +1,36 @@
+{
+ "description": "A before B, B before C and C before A cannot all hold: a conflict naming exactly these three statements (AC-T-3).",
+ "points": [
+  "A",
+  "B",
+  "C"
+ ],
+ "statements": [
+  {
+   "id": "s1",
+   "kind": "before",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "id": "s2",
+   "kind": "before",
+   "a": "B",
+   "b": "C"
+  },
+  {
+   "id": "s3",
+   "kind": "before",
+   "a": "C",
+   "b": "A"
+  }
+ ],
+ "expect": {
+  "conflict": true,
+  "conflictIds": [
+   "s1",
+   "s2",
+   "s3"
+  ]
+ }
+}

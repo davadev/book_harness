@@ -1,0 +1,52 @@
+{
+ "description": "Events nothing links have no order; the solver never invents one (AC-T-2).",
+ "points": [
+  "A",
+  "B",
+  "C",
+  "D"
+ ],
+ "statements": [
+  {
+   "kind": "before",
+   "a": "A",
+   "b": "B"
+  },
+  {
+   "kind": "before",
+   "a": "C",
+   "b": "D"
+  }
+ ],
+ "expect": {
+  "conflict": false,
+  "before": [
+   [
+    "A",
+    "B"
+   ],
+   [
+    "C",
+    "D"
+   ]
+  ],
+  "unordered": [
+   [
+    "A",
+    "C"
+   ],
+   [
+    "A",
+    "D"
+   ],
+   [
+    "B",
+    "C"
+   ],
+   [
+    "B",
+    "D"
+   ]
+  ]
+ }
+}
