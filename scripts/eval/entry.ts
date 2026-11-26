@@ -13,6 +13,8 @@ import { extractChapter } from "../../src/core/extraction";
 import { GuardedVault } from "../../src/core/guarded-vault";
 import { PROOFREAD_PROMPT, proofreadChapter } from "../../src/core/proofread";
 import { proseSegments } from "../../src/core/segmentation";
+import { checkConsistency } from "../../src/core/agent/consistency";
+import { createEntity } from "../../src/core/entities";
 import { findEvents, loadCandidates } from "../../src/core/temporal/events";
 import { syncTranslation } from "../../src/core/translation/translate";
 import { askBook, gatherEvidence } from "../../src/core/agent/ask";
@@ -184,6 +186,32 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 			if (!found) continue;
 			lines.push(`**${c.designation}**`, "", ...found.events.map((e) => `- event: ${e.label} — “${e.quote.slice(0, 80)}”`), ...found.relations.map((r) => `- ${r.kind}: ${r.a}${r.b ? ` / ${r.b}` : ""}${r.duration ? ` (${r.duration})` : ""}${r.date ? ` (${r.date})` : ""} — “${r.quote.slice(0, 80)}”`), "");
 		}
+	}
+
+	if (STEPS.includes("consistency")) {
+		const { vault, book, chapters, rnd } = await setupBook();
+		const search = new BookSearch();
+		const subjects: Array<{ name: string; aliases: string[]; planted: string }> = [
+			{ name: "Nora Voss", aliases: ["Nora", "Nell"], planted: "eye colour: grey in chapter 1, green in chapter 3" },
+			{ name: "Tomas Voss", aliases: ["Tomas"], planted: "younger brother in chapter 2, elder brother in chapter 3" },
+			{ name: "compass", aliases: ["Meridian Key"], planted: "brass in chapter 1, silver in chapter 2" },
+			{ name: "Ilse Kovar", aliases: ["Ilse"], planted: "none planted" },
+		];
+		lines.push("### Consistency check (retrieval of up to 10 passages per subject)", "", "| Subject | Planted | Time | Passages | Findings | Left out |", "|---|---|---|---|---|---|");
+		const detail: string[] = [];
+		for (const sub of subjects) {
+			const entity = await createEntity(vault, book, [], { type: "character", name: sub.name, aliases: sub.aliases }, rnd);
+			const t0 = Date.now();
+			try {
+				const { evidence } = await gatherEvidence(vault, book, chapters, search, [sub.name, ...sub.aliases].join(" "), null, 10);
+				const r = await checkConsistency({ client, model, diagnostics: diag, now: () => new Date().toISOString(), sleep }, entity, evidence);
+				lines.push(`| ${sub.name} | ${sub.planted} | ${secs(t0)} s | ${r.excerpts} | ${r.found.length} | ${r.dropped} |`);
+				for (const f of r.found) detail.push(`- **${sub.name}: ${f.topic}** — ${f.first.chapter} “${f.first.quote.slice(0, 70)}” vs ${f.second.chapter} “${f.second.quote.slice(0, 70)}”. ${f.explanation}`);
+			} catch (e) {
+				lines.push(`| ${sub.name} | ${sub.planted} | ${secs(t0)} s | | FAILED | ${(e as Error).message} |`);
+			}
+		}
+		lines.push("", ...detail, "");
 	}
 
 	if (STEPS.includes("ask")) {

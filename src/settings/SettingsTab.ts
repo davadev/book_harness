@@ -71,9 +71,20 @@ export class PluginSettingsTab extends PluginSettingTab {
 							options: { error: "Errors only", warn: "Warnings", info: "Info", debug: "Debug" },
 						},
 					},
+					{
+						name: "Copy recent model runs",
+						desc: "Copies a list of the last model calls made since Obsidian started: which task, which model, how long, whether it needed a repair and how it ended. It contains no text from your book and no prompts, so it is safe to paste into a bug report.",
+						action: () => void this.copyReport(),
+					},
 				],
 			},
 		];
+	}
+
+	private async copyReport(): Promise<void> {
+		const report = this.host.diagnostics.report();
+		await navigator.clipboard.writeText(report === "" ? "No model calls yet." : report);
+		new Notice(report === "" ? "No model calls have been made yet." : "Copied the recent model runs.");
 	}
 
 	private async runTest(): Promise<void> {

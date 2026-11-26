@@ -1,3 +1,4 @@
+import { DiagnosticsLog } from "../core/ai/diagnostics";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Notice, requestUrlMock } from "./__mocks__/obsidian";
 import { obsidianNetwork } from "../platform/network";
@@ -64,7 +65,7 @@ describe("obsidianNetwork", () => {
 describe("settings tab", () => {
 	function tab(net = obsidianNetwork) {
 		const saved = vi.fn(() => Promise.resolve());
-		const plugin = { settings: structuredClone(DEFAULT_SETTINGS), saveSettings: saved, network: net, app: {} } as unknown as BookHarnessPlugin;
+		const plugin = { settings: structuredClone(DEFAULT_SETTINGS), saveSettings: saved, network: net, diagnostics: new DiagnosticsLog(), app: {} } as unknown as BookHarnessPlugin;
 		return { t: new PluginSettingsTab({} as never, plugin), plugin, saved };
 	}
 
@@ -92,6 +93,22 @@ describe("settings tab", () => {
 		action();
 		await vi.waitFor(() => expect(Notice.instances).toHaveLength(2));
 		expect(Notice.instances[1]?.message).toMatch(/^Connection works\./);
+	});
+
+	it("copies the recent model runs, without any text, on request", async () => {
+		const { t, plugin } = tab();
+		const written: string[] = [];
+		vi.stubGlobal("navigator", { clipboard: { writeText: (x: string) => (written.push(x), Promise.resolve()) } });
+		const items = t.getSettingDefinitions().flatMap((g) => ("items" in g ? g.items ?? [] : [])) as unknown as Array<{ name: string; action?: () => void }>;
+		const copy = items.find((i) => i.name === "Copy recent model runs")!.action!;
+		copy();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("No model calls have been made yet."));
+		expect(written).toEqual(["No model calls yet."]);
+		plugin.diagnostics.add({ task: "chapter.summary", promptVersion: "1", model: "m", startedAt: "t", ms: 12, attempts: 1, repaired: false, outcome: "ok", issues: [] });
+		copy();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Copied the recent model runs."));
+		expect(written[1]).toContain("chapter.summary@1 m ok 12ms");
+		vi.unstubAllGlobals();
 	});
 });
 

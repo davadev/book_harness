@@ -202,3 +202,35 @@
 	overflow-wrap: anywhere;
 	padding: var(--size-4-1) 0;
 }
+
+/* Sections added after the overview: lists wrap inside the panel and every action keeps a touch-sized target. */
+.bh-statistics,
+.bh-timeline,
+.bh-ask,
+.bh-translations,
+.bh-candidates,
+.bh-findings {
+	margin: var(--size-4-4) 0;
+	overflow-wrap: anywhere;
+}
+
+.bh-statistics ul,
+.bh-timeline ul,
+.bh-timeline ol,
+.bh-candidates ul,
+.bh-translations ul {
+	padding-inline-start: var(--size-4-4);
+}
+
+.bh-statistics li,
+.bh-timeline li,
+.bh-candidates li,
+.bh-translations li {
+	margin: var(--size-4-1) 0;
+}
+
+.bh-answer,
+.bh-finding {
+	border-top: 1px solid var(--background-modifier-border);
+	padding: var(--size-4-2) 0;
+}
