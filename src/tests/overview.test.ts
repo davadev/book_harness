@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -198,7 +198,7 @@ describe("overview rendering", () => {
 
 	it("lists entities by kind with their aliases and per-entity actions", () => {
 		const a = actions();
-		const ent = (id: string, type: string, name: string, aliases: string[] = []) => ({ id, bookId: "bk1", type, name, aliases, mergedInto: null, archived: false, path: `A/_book-harness/entities/${type}/${id}.md`, body: "" });
+		const ent = (id: string, type: string, name: string, aliases: string[] = []) => ({ id, bookId: "bk1", type, name, aliases, mergedInto: null, origin: "author" as const, distinctFrom: [] as string[], archived: false, path: `A/_book-harness/entities/${type}/${id}.md`, body: "" });
 		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
 		const entities = [ent("en_2", "place", "Harbour"), ent("en_1", "character", "Philip", ["Phil", "Marlowe"]), ent("en_3", "character", "Anna")];
 		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), entities), a);
@@ -225,6 +225,24 @@ describe("overview rendering", () => {
 		expect(a.archiveEntity).toHaveBeenCalledWith("en_1");
 		click("Add an entity");
 		expect(a.addEntity).toHaveBeenCalled();
+	});
+
+	it("offers duplicate hints with merge or different, flags unsupported entities, and starts extraction on request", () => {
+		const a = actions();
+		const ent = (id: string, name: string) => ({ id, bookId: "bk1", type: "character", name, aliases: [], mergedInto: null, origin: "extracted" as const, distinctFrom: [], archived: false, path: `p/${id}`, body: "" });
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const entities = [ent("en_1", "Philip Marlowe"), ent("en_2", "Marlowe")];
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), entities, [ent("en_9", "Ghost")]), a);
+		expect(text()).toContain("Could these be the same? (1)");
+		expect(text()).toContain('Philip Marlowe and Marlowe (character, both contain "marlowe")');
+		(root.querySelector('button[aria-label="Merge Marlowe into Philip Marlowe"]') as HTMLButtonElement).click();
+		expect(a.mergeDuplicate).toHaveBeenCalledWith("en_2", "en_1");
+		(root.querySelector('button[aria-label="Philip Marlowe and Marlowe are different"]') as HTMLButtonElement).click();
+		expect(a.keepDistinct).toHaveBeenCalledWith("en_1", "en_2");
+		expect(text()).toContain("No chapter supports these any more");
+		expect(text()).toContain("Ghost (character): the text it was found in has changed.");
+		click("Find characters, places and objects");
+		expect(a.extractEntities).toHaveBeenCalled();
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

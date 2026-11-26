@@ -11,7 +11,8 @@ import type { DiagnosticsLog } from "../core/ai/diagnostics";
 import type { NetworkPort } from "../core/ai/network";
 import { OllamaClient, normalizeEndpoint } from "../core/ai/ollama";
 import { coverageView, defaultProofreadPrompt, loadCoverage, proofreadChapter, type CoverageView } from "../core/proofread";
-import { ENTITY_TYPES, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
+import { EXTRACTED_KINDS, extractChapter, loadEvidence, rebuildHistories, unsupportedExtracted, type ChapterEvidence } from "../core/extraction";
+import { ENTITY_TYPES, markDistinct, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
@@ -118,10 +119,13 @@ export class BookHarnessView extends ItemView {
 			if (book) for (const c of shown) if (c.notePath !== null && vault.exists(c.notePath)) coverage.set(c.id, coverageView(await vault.read(c.notePath), await loadCoverage(vault, book, c.id)));
 			const entityData = book ? await listAllEntities(vault, book) : { entities: [], problems: [] };
 			problems.push(...entityData.problems);
+			const evidence: ChapterEvidence[] = [];
+			if (book) for (const c of shown) { const e = await loadEvidence(vault, book, c.id); if (e) evidence.push(e); }
+			const unsupported = book && evidence.length > 0 ? unsupportedExtracted(entityData.entities, evidence) : [];
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities)) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -130,6 +134,26 @@ export class BookHarnessView extends ItemView {
 			this.drawing = false;
 			if (this.dirty) void this.draw();
 		}
+	}
+
+	/** The checks every model action shares. Says what is wrong in a notice and returns null, or what the action needs. */
+	private readyToSend(book: Book, chapters: Chapter[]): { base: string; device: BookHarnessSettings["device"]; targets: Chapter[] } | null {
+		const device = this.host.settings.device;
+		const base = normalizeEndpoint(device.endpoint);
+		if (base === null || device.generationModel === "") {
+			new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
+			return null;
+		}
+		if (this.runner.hasRunningJob(book.id)) {
+			new Notice("A job is already running for this book.", 8000);
+			return null;
+		}
+		const targets = chapters.filter((c) => c.notePath !== null);
+		if (targets.length === 0) {
+			new Notice("No chapter has a manuscript note yet.", 8000);
+			return null;
+		}
+		return { base, device, targets };
 	}
 
 	private async startSummaries(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
@@ -142,6 +166,21 @@ export class BookHarnessView extends ItemView {
 			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
 		});
 		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
+		this.markDirty();
+	}
+
+	private async startExtraction(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
+		const client = new OllamaClient(this.host.network, base);
+		const now = () => new Date().toISOString();
+		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "entities.extract", "find-entities", chapters, async (chapter, signal) => {
+			const r = await extractChapter(vault, book, chapter, { client, model, signal, diagnostics: this.host.diagnostics, now, sleep, random: platformRandom });
+			if (r.kind === "discarded-stale") return { state: "discarded", message: `${chapter.designation} changed while it was being read; nothing was recorded.` };
+			const parts = [`${r.created.length} new${r.created.length ? ` (${r.created.join(", ")})` : ""}`, `${r.matched} already known`, r.ungrounded ? `${r.ungrounded} left out because the quote was not in the text` : "", ...r.notes].filter((x) => x !== "");
+			return { state: "done", message: parts.join("; ") };
+		});
+		await rebuildHistories(vault, book, readingOrder(chapters));
+		new Notice(`Read ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
 		this.markDirty();
 	}
 
@@ -206,21 +245,9 @@ export class BookHarnessView extends ItemView {
 				);
 			},
 			summarize: () => {
-				const device = this.host.settings.device;
-				const base = normalizeEndpoint(device.endpoint);
-				if (base === null || device.generationModel === "") {
-					new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
-					return;
-				}
-				if (this.runner.hasRunningJob(book.id)) {
-					new Notice("A job is already running for this book.", 8000);
-					return;
-				}
-				const targets = chapters.filter((c) => c.notePath !== null);
-				if (targets.length === 0) {
-					new Notice("No chapter has a manuscript note yet.", 8000);
-					return;
-				}
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device, targets } = ready;
 				new ConfirmModal(
 					this.app,
 					"Summarize chapters",
@@ -234,21 +261,9 @@ export class BookHarnessView extends ItemView {
 				).open();
 			},
 			proofread: () => {
-				const device = this.host.settings.device;
-				const base = normalizeEndpoint(device.endpoint);
-				if (base === null || device.generationModel === "") {
-					new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
-					return;
-				}
-				if (this.runner.hasRunningJob(book.id)) {
-					new Notice("A job is already running for this book.", 8000);
-					return;
-				}
-				const targets = chapters.filter((c) => c.notePath !== null);
-				if (targets.length === 0) {
-					new Notice("No chapter has a manuscript note yet.", 8000);
-					return;
-				}
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device, targets } = ready;
 				new ConfirmModal(
 					this.app,
 					"Proofread chapters",
@@ -276,6 +291,24 @@ export class BookHarnessView extends ItemView {
 						return Promise.resolve();
 					}),
 				),
+			extractEntities: () => {
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device, targets } = ready;
+				new ConfirmModal(
+					this.app,
+					"Find characters, places and objects",
+					[
+						`The text of ${targets.length} chapter${targets.length === 1 ? "" : "s"} will be sent to ${base} using the model "${device.generationModel}", once for each of ${EXTRACTED_KINDS.length} kinds (${EXTRACTED_KINDS.join(", ")}).`,
+						"New entries are added to your entity list. Names you already have are matched exactly and never changed. Your chapters are not changed.",
+						"You can cancel while it runs.",
+					],
+					"Find",
+					() => void this.startExtraction(vault, book, targets, base, device.generationModel).catch(fail),
+				).open();
+			},
+			mergeDuplicate: (fromId, intoId) => run(withEntity(fromId, (all, from) => mergeEntities(vault, from, all.find((e) => e.id === intoId) as Entity))),
+			keepDistinct: (aId, bId) => run(withEntity(aId, (all, a) => markDistinct(vault, a, all.find((e) => e.id === bId) as Entity))),
 			removeAlias: (id) =>
 				run(
 					withEntity(id, (_all, e) => {

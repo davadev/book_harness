@@ -147,6 +147,7 @@ describe("stored entities", () => {
 		["a bad type", "bh_schema: 1\nbh_type: entity\nbh_id: en_aaaaaaaaaaaaaaaa\nbh_book: BOOK\nentity_type: Bad!", /type is invalid/],
 		["no name", "bh_schema: 1\nbh_type: entity\nbh_id: en_aaaaaaaaaaaaaaaa\nbh_book: BOOK\nentity_type: place", /name is missing/],
 		["bad aliases", "bh_schema: 1\nbh_type: entity\nbh_id: en_aaaaaaaaaaaaaaaa\nbh_book: BOOK\nentity_type: place\nname: X\naliases: 5", /aliases are invalid/],
+		["a bad distinct list", "bh_schema: 1\nbh_type: entity\nbh_id: en_aaaaaaaaaaaaaaaa\nbh_book: BOOK\nentity_type: place\nname: X\ndistinct_from: [nope]", /distinct list is invalid/],
 		["a bad merge target", "bh_schema: 1\nbh_type: entity\nbh_id: en_aaaaaaaaaaaaaaaa\nbh_book: BOOK\nentity_type: place\nname: X\nmerged_into: nope", /merge target is invalid/],
 	])("reports %s", async (_n, fm, reason) => {
 		const { raw, vault, book } = await setup();

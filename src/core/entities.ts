@@ -16,6 +16,10 @@ export interface Entity {
 	aliases: string[];
 	/** Set when this entity was merged into another: references to it resolve to that one. */
 	mergedInto: string | null;
+	/** Who created it: the author by hand, or the extraction task. Extraction never edits what the author created. */
+	origin: "author" | "extracted";
+	/** Entities the author said are NOT the same as this one, so they are not suggested as duplicates again. */
+	distinctFrom: string[];
 	/** Hidden from lists and matching, but kept so nothing that points at it breaks. */
 	archived: boolean;
 	path: string;
@@ -37,7 +41,7 @@ export function isEntityType(value: unknown): value is string {
 
 function render(e: Omit<Entity, "path">): string {
 	return serializeManagedNote({
-		frontmatter: { bh_schema: ENTITY_SCHEMA, bh_type: "entity", bh_id: e.id, bh_book: e.bookId, entity_type: e.type, name: e.name, aliases: e.aliases, merged_into: e.mergedInto, archived: e.archived },
+		frontmatter: { bh_schema: ENTITY_SCHEMA, bh_type: "entity", bh_id: e.id, bh_book: e.bookId, entity_type: e.type, name: e.name, aliases: e.aliases, merged_into: e.mergedInto, archived: e.archived, origin: e.origin, distinct_from: e.distinctFrom },
 		body: e.body,
 	});
 }
@@ -56,7 +60,9 @@ function parse(path: string, text: string, book: Book): Entity {
 	if (!Array.isArray(aliases) || !aliases.every((a) => typeof a === "string")) throw new ManagedNoteError("Entity aliases are invalid.");
 	const mergedInto: unknown = fm.merged_into ?? null;
 	if (mergedInto !== null && !isId(mergedInto, "en")) throw new ManagedNoteError("Entity merge target is invalid.");
-	return { id: fm.bh_id, bookId: book.id, type: fm.entity_type, name: cleanName(fm.name), aliases: aliases.map(cleanName).filter((a) => a !== ""), mergedInto, archived: fm.archived === true, path, body };
+	const distinct: unknown = fm.distinct_from ?? [];
+	if (!Array.isArray(distinct) || !distinct.every((d) => isId(d, "en"))) throw new ManagedNoteError("Entity distinct list is invalid.");
+	return { id: fm.bh_id, bookId: book.id, type: fm.entity_type, name: cleanName(fm.name), aliases: aliases.map(cleanName).filter((a) => a !== ""), mergedInto, origin: fm.origin === "extracted" ? "extracted" : "author", distinctFrom: distinct, archived: fm.archived === true, path, body };
 }
 
 /** Every entity record of a book, including archived and merged ones. Unreadable records are reported, never hidden. */
@@ -101,6 +107,7 @@ export interface NewEntity {
 	type: string;
 	name: string;
 	aliases?: string[];
+	origin?: "author" | "extracted";
 }
 
 export async function createEntity(vault: VaultPort, book: Book, all: readonly Entity[], req: NewEntity, random: RandomPort): Promise<Entity> {
@@ -110,7 +117,7 @@ export async function createEntity(vault: VaultPort, book: Book, all: readonly E
 	const aliases = (req.aliases ?? []).map(cleanName).filter((a, i, list) => a !== "" && nameKey(a) !== nameKey(name) && list.findIndex((x) => nameKey(x) === nameKey(a)) === i);
 	assertFree(all, [name, ...aliases]);
 	const id = newId("en", random);
-	const entity: Entity = { id, bookId: book.id, type: req.type, name, aliases, mergedInto: null, archived: false, path: entityPath(book, req.type, id), body: NEW_BODY(name) };
+	const entity: Entity = { id, bookId: book.id, type: req.type, name, aliases, mergedInto: null, origin: req.origin ?? "author", distinctFrom: [], archived: false, path: entityPath(book, req.type, id), body: NEW_BODY(name) };
 	await vault.create(entity.path, render(entity));
 	return entity;
 }
@@ -163,4 +170,53 @@ export async function splitEntity(vault: VaultPort, book: Book, all: readonly En
 /** Hide an entity without deleting its note, so nothing that refers to it breaks. */
 export async function archiveEntity(vault: VaultPort, entity: Entity): Promise<Entity> {
 	return write(vault, { ...entity, archived: true });
+}
+
+/** The author says these two are different things: stop suggesting them as duplicates. */
+export async function markDistinct(vault: VaultPort, a: Entity, b: Entity): Promise<void> {
+	await write(vault, { ...a, distinctFrom: [...new Set([...a.distinctFrom, b.id])] });
+	await write(vault, { ...b, distinctFrom: [...new Set([...b.distinctFrom, a.id])] });
+}
+
+const HISTORY_HEADING = "## History (AI-managed)";
+
+/** Replace the AI-managed history section, leaving everything else the author wrote exactly as it is. */
+export async function setHistory(vault: VaultPort, entity: Entity, history: string): Promise<Entity> {
+	const start = entity.body.indexOf(HISTORY_HEADING);
+	const section = `${HISTORY_HEADING}\n\n${history}\n`;
+	let body: string;
+	if (start < 0) body = `${entity.body.replace(/\n*$/, "")}\n\n${section}`;
+	else {
+		const rest = entity.body.slice(start + HISTORY_HEADING.length);
+		const next = rest.search(/\n## /);
+		body = `${entity.body.slice(0, start)}${section}${next < 0 ? "" : rest.slice(next)}`;
+	}
+	return body === entity.body ? entity : write(vault, { ...entity, body });
+}
+
+export interface DuplicateSuggestion {
+	a: Entity;
+	b: Entity;
+	shared: string;
+}
+
+const IGNORED_TOKENS = new Set(["the", "and", "von", "van", "der", "den", "des", "dos", "del", "di", "de", "la", "le", "el"]);
+
+/**
+ * Pairs of the same kind that share a whole word of three or more letters ("Philip Marlowe", "Marlowe"). Only a hint for
+ * the author to look at: similar names are never merged and never assumed to be the same.
+ */
+export function possibleDuplicates(all: readonly Entity[]): DuplicateSuggestion[] {
+	const live = activeEntities(all);
+	const tokens = (e: Entity): Set<string> => new Set([e.name, ...e.aliases].flatMap((n) => nameKey(n).split(/[^\p{L}\p{N}]+/u)).filter((t) => t.length >= 3 && !IGNORED_TOKENS.has(t)));
+	const out: DuplicateSuggestion[] = [];
+	for (const [i, a] of live.entries()) {
+		const ta = tokens(a);
+		for (const b of live.slice(i + 1)) {
+			if (a.type !== b.type || a.distinctFrom.includes(b.id) || b.distinctFrom.includes(a.id)) continue;
+			const shared = [...tokens(b)].find((t) => ta.has(t));
+			if (shared !== undefined) out.push({ a, b, shared });
+		}
+	}
+	return out;
 }

@@ -18,6 +18,9 @@ export interface BookActions {
 	proofread(): void;
 	decideEdits(proposalId: string, editIds: string[], decision: "accepted" | "rejected"): void;
 	applyProposal(proposalId: string): void;
+	extractEntities(): void;
+	mergeDuplicate(fromId: string, intoId: string): void;
+	keepDistinct(aId: string, bId: string): void;
 	addEntity(): void;
 	renameEntity(id: string, current: string): void;
 	addAlias(id: string): void;
@@ -53,7 +56,7 @@ const JOB_LABEL: Record<JobRecord["state"], string> = {
 	dismissed: "",
 };
 
-const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading" };
+const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading", "entities.extract": "Finding entities" };
 
 function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-job" });
@@ -159,6 +162,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
 	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
+	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
 	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());
 	bar.createEl("button", { cls: "bh-button", text: "Proofread chapters" }).addEventListener("click", () => bookActions.proofread());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
@@ -166,6 +170,23 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	if (!overview) return;
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);
+	if (overview.duplicates.length > 0) {
+		const box = root.createDiv({ cls: "bh-duplicates" });
+		box.createEl("h4", { text: `Could these be the same? (${overview.duplicates.length})` });
+		box.createDiv({ cls: "bh-note", text: "They share a word. Nothing is merged unless you say so." });
+		for (const d of overview.duplicates) {
+			const row = box.createDiv({ cls: "bh-entity" });
+			row.createSpan({ text: `${d.a.name} and ${d.b.name} (${d.a.type}, both contain "${d.shared}") ` });
+			const controls = row.createDiv({ cls: "bh-chapter-controls" });
+			controls.createEl("button", { cls: "bh-icon-button", text: "Same: merge", attr: { "aria-label": `Merge ${d.b.name} into ${d.a.name}` } }).addEventListener("click", () => bookActions.mergeDuplicate(d.b.id, d.a.id));
+			controls.createEl("button", { cls: "bh-icon-button", text: "Different", attr: { "aria-label": `${d.a.name} and ${d.b.name} are different` } }).addEventListener("click", () => bookActions.keepDistinct(d.a.id, d.b.id));
+		}
+	}
+	if (overview.unsupported.length > 0) {
+		const box = root.createDiv({ cls: "bh-callout" });
+		box.createEl("strong", { text: "No chapter supports these any more" });
+		for (const e of overview.unsupported) box.createDiv({ text: `${e.name} (${e.type}): the text it was found in has changed. Keep or remove it.` });
+	}
 	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });

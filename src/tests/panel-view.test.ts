@@ -704,6 +704,102 @@ describe("BookHarnessView edge cases", () => {
 		expect(store.get("Book/one.md")).toBe(chapterBefore);
 	});
 
+	it("finds entities after confirmation, shows what it did, hints at duplicates and lets the author decide", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "Philip Marlowe met Marlowe at the harbour.");
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation((req?: { body?: string }) => {
+			const system = (JSON.parse(req?.body ?? "{}").messages[0].content as string);
+			const mentions = system.includes("list the characters:") ? [{ name: "Philip Marlowe", aliases: [], quote: "Philip Marlowe met", note: "Meets someone." }, { name: "Marlowe", aliases: [], quote: "met Marlowe", note: "Is met." }, { name: "Ghost", aliases: [], quote: "not in the text", note: "" }] : [];
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ mentions }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find characters, places and objects"));
+		button(view, "Find characters, places and objects").click();
+		expect(document.body.textContent).toContain("will be sent to http://h:11434 using the model \"gen\", once for each of 3 kinds (character, place, object)");
+		expect(host.network.request).not.toHaveBeenCalled();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Find")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Read 1 of 1 chapters."));
+		await vi.waitFor(() => expect(text(view)).toContain("Could these be the same? (1)"));
+		expect(text(view)).toContain("2 new (Philip Marlowe, Marlowe)");
+		expect(text(view)).toContain("1 left out because the quote was not in the text");
+		expect(store.get("Book/one.md")).toBe("Philip Marlowe met Marlowe at the harbour.");
+		const history = [...store.entries()].find(([p, t]) => p.includes("/entities/") && t.includes("name: Philip Marlowe"))?.[1];
+		expect(history).toContain("## History (AI-managed)");
+		button(view, "Different").click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Could these be the same?"));
+		store.set("Book/one.md", "Nothing about them now.");
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ mentions: [] }) } }) }));
+		button(view, "Find characters, places and objects").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Find")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("No chapter supports these any more"));
+	});
+
+	it("uses the plural for several chapters and discards a reading when the chapter changed meanwhile", async () => {
+		const { fake, view, host, store } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => {
+			store.set("Book/one.md", "Rewritten meanwhile.");
+			store.set("Book/two.md", "Also rewritten.");
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ mentions: [] }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find characters, places and objects"));
+		button(view, "Find characters, places and objects").click();
+		expect(document.body.textContent).toContain("The text of 2 chapters will be sent");
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Find")!.click();
+		await vi.waitFor(() => expect(text(view)).toMatch(/changed while it was being read; nothing was recorded\./));
+	});
+
+	it("retries a dropped connection once while finding entities", async () => {
+		const { fake, view, host, store } = await setup();
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockRejectedValueOnce(new Error("blip")).mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ mentions: [] }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find characters, places and objects"));
+		button(view, "Find characters, places and objects").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Find")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Read 1 of 1 chapters."), { timeout: 3000 });
+	});
+
+	it("explains what is missing before finding entities", async () => {
+		const { fake, view } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find characters, places and objects"));
+		button(view, "Find characters, places and objects").click();
+		expect(Notice.instances.at(-1)?.message).toMatch(/Set the server address/);
+		expect(document.body.textContent).not.toContain("will be sent to");
+	});
+
+	it("merges a suggested duplicate on request", async () => {
+		const { fake, view, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
+		const add = async (name: string) => {
+			button(view, "Add an entity").click();
+			const input = document.body.querySelector("input") as HTMLInputElement;
+			input.value = name;
+			input.dispatchEvent(new Event("input"));
+			Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Add")!.click();
+			await vi.waitFor(() => expect(text(view)).toContain(name));
+		};
+		await add("Philip Marlowe");
+		await add("Marlowe");
+		await vi.waitFor(() => expect(text(view)).toContain("Could these be the same?"));
+		(view.contentEl.querySelector('button[aria-label^="Merge "]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Could these be the same?"));
+		expect([...store.values()].filter((t) => t.includes("merged_into: en_")).length).toBe(1);
+	});
+
 	it("says so when an entity vanished before an action reached it", async () => {
 		const { fake, view, store } = await setup();
 		fake.state.active = "Book/one.md";
