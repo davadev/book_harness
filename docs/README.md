@@ -18,4 +18,4 @@ Start with `STATUS.md`.
 | `RISKS.md` | Architectural risks and mitigations |
 | `ACCEPTANCE.md` | Acceptance scenarios → tests |
 | `STATUS.md` | Implementation ledger, blockers, change log |
-
+| `SPIKES.md` | Feasibility spike results (desktop-side), directions and what still needs devices |

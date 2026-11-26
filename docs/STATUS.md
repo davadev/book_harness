@@ -69,12 +69,12 @@ None blocks Phase 0. Blocking later work:
 
 | ID | Status | Result |
 |---|---|---|
-| S1 EPUB/PDF on mobile | Not started | — |
+| S1 EPUB/PDF | Desktop-side done | See SPIKES.md: fflate + pdfmake direction; device/EPUBCheck pending |
 | S2 Editor decorations on mobile | Not started | — |
-| S3 NLP/POS on mobile | Not started | — |
-| S4 Decision provider interface | Not started | Blocked on O-1 |
+| S3 NLP/POS | Desktop-side done | English tagging feasible; de/cs/sk no on-device tagger (O-13) |
+| S4 Decision provider | Out of MVP | O-1 resolved |
 | S5 Mobile → Ollama connectivity | Not started | Needs device + author network |
-| S6 Hash/worker/WASM/binary persistence | Not started | — |
+| S6 Hash/vector storage | Desktop-side done | noble SHA-256; Float32 brute force; device checks pending |
 | S7 Timeline renderer abstract axis | Not started | — |
 | S8 Sync conflict behaviour | Not started | Needs O-11 |
 
@@ -90,6 +90,7 @@ Scaffold slice (2026-11-26, desktop toolchain only): `build`, `lint` (0/0), `lin
 
 | Date | Change |
 |---|---|
+| 2026-11-26 | Spikes S1/S3/S6 desktop-side run; results in SPIKES.md; ADRs D-020..D-023, open O-13. |
 | 2026-11-26 | Phase 1 scaffold: playbook templates applied (config, scripts, CI/release workflows, skills, hook, tests), minimal plugin (onload wrapper, crash guard, log level setting), README, LICENSE. O-1 (decision provider out of MVP) and Android (unverified) recorded. |
 | 2026-11-26 | Author resolved O-3, O-4, O-6, O-7, O-11. |
 | 2026-11-26 | Phase 0: read master prompt; inspected playbook and timeline plugin (`7f1611d`, v0.13.2); wrote AGENTS.md/CLAUDE.md and docs (SPEC, DISCOVERY, COMPATIBILITY, ARCHITECTURE, AI-AND-PROMPTS, MANUSCRIPT-PROTECTION, SEARCH-AND-AGENT, TEMPORAL-ENGINE, PUBLISHING, IMPLEMENTATION-PLAN, DECISIONS, RISKS, ACCEPTANCE, STATUS). No upstream repo modified. |

@@ -68,3 +68,13 @@ See `DISCOVERY.md` §3 (C-1 … C-8). None currently requires violating an expli
 ## Deferred improvements (not scope reductions)
 
 Items the master prompt marks as "may evolve after the required core": additional literary actions, sophisticated character knowledge inference, fixed-layout EPUB, extensive typography, ANN vector index, incremental solver, manual author TODOs (recommended extension — planned in Phase 3). None of the required V1 features is deferred.
+
+## Spike-derived proposals (2026-11-26; see `SPIKES.md`)
+
+| ID | Proposal | Status |
+|---|---|---|
+| D-020 | EPUB packaging with `fflate` (MIT, 4 KB gz) + own XHTML generation; heavy export libraries lazy-loaded on export only. | Proposed; verify on iOS |
+| D-021 | PDF layout via `pdfmake` (maintained, TOC + links) with outline post-processing TBD; `pdf-lib` rejected as primary because it is unmaintained (2022) and has no layout. Markdown parser still undecided (micromark vs marked vs markdown-it; criterion: source offsets for block anchors). | Proposed; O-8 still open |
+| D-022 | Hashing: `@noble/hashes` SHA-256 everywhere (identical across platforms); `crypto.subtle` optional accelerator. Supersedes the open part of D-012. | Proposed |
+| D-023 | Vectors: Float32 binary file in plugin folder, brute-force cosine; no ANN. | Proposed |
+| O-13 | **Adjective analysis for German and Czech/Slovak** has no on-device POS tagger. Accept two labelled modes (heuristic, or user-initiated model-assisted classification) with English getting true POS tagging? Or require a bundled lexicon/model (size/mobile cost)? | Open — needs author |
