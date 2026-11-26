@@ -8,7 +8,7 @@ Last updated: 2026-11-26 (Phase 0 complete; no code written). Update this file a
 |---|---|---|---|
 | 0 | Discovery and documentation | **Done (this session)** | Docs written; open decisions recorded. Playbook docs partly unread — see DISCOVERY §1. |
 | 1 | Scaffold, spikes S1–S8, compatibility proof | **In progress**: scaffold slice done (below); spikes not started | Unblocked (O-3 resolved). S4 needs O-1; S5/S7 need iPhone. |
-| 2 | Core books/chapters/schemas/panel/write-gate skeleton | **In progress** | Done: ids, managed-note schema/parse/serialize, book registration + discovery + nesting refusal + isolation helper, `Register this note's folder as a book` command with modal. **Not done:** manuscript write gate skeleton + architecture test, chapter slots/promotion/designation/order/gaps/rename tracking, side panel, settings/book-config split, manual entity shells, schema migrations framework. Desktop-only tests; not run in Obsidian. |
+| 2 | Core books/chapters/schemas/panel/write-gate skeleton | **In progress** | Done: ids, managed-note schema/parse/serialize, book registration + discovery + nesting refusal + isolation helper, `Register this note's folder as a book` command with modal. Also done: manuscript write guard skeleton (`GuardedVault` refuses every write to manuscript paths; no capability exists yet) + architecture tests (core purity, single write path, raw port only in guarded factory, no network API) with canary-verified failure. **Not done:** capability-carrying proposal path (Phase 5), chapter slots/promotion/designation/order/gaps/rename tracking, side panel, settings/book-config split, manual entity shells, schema migrations framework. Desktop-only tests; not run in Obsidian. |
 | 3 | Revisions, invalidation, jobs, TODO foundation | Not started | |
 | 4 | AI infrastructure | Not started | O-1, O-2 open. |
 | 5 | Proposal/diff/review, proofreading | Not started | |
@@ -84,12 +84,13 @@ Empty. No platform has been tested (desktop or mobile). See `COMPATIBILITY.md` �
 
 ## 7. Test and gate results
 
-Latest (Phase 2 slice 1): 164 tests, 100 % on all four metrics; build, lint, dead-code, cloud-parity, `check-release --with-build --strict` green. Earlier scaffold slice (2026-11-26, desktop toolchain only): `build`, `lint` (0/0), `lint:css`, `lint:deps`, `check:dead-code`, `test:cov` (129 tests, 100 % on 4 metrics), `lint:cloud-parity` (0 errors) and `check-release --with-build --strict` (49 passed, 0 failed, 0 warned) are green. 16 dev-toolchain advisories reported by `npm audit` (not shipped, non-blocking; review in the dependency-update pass). **Not yet run:** WebKit/Chromium layout jobs, any real Obsidian runtime (desktop or iOS).
+Latest (Phase 2 slice 2, write guard): 173 tests, 100 % on all four metrics; build, lint, dead-code, cloud-parity, `check-release --with-build --strict` green. Earlier scaffold slice (2026-11-26, desktop toolchain only): `build`, `lint` (0/0), `lint:css`, `lint:deps`, `check:dead-code`, `test:cov` (129 tests, 100 % on 4 metrics), `lint:cloud-parity` (0 errors) and `check-release --with-build --strict` (49 passed, 0 failed, 0 warned) are green. 16 dev-toolchain advisories reported by `npm audit` (not shipped, non-blocking; review in the dependency-update pass). **Not yet run:** WebKit/Chromium layout jobs, any real Obsidian runtime (desktop or iOS).
 
 ## 8. Change log
 
 | Date | Change |
 |---|---|
+| 2026-11-26 | Phase 2 slice 2: GuardedVault + architecture tests (AC-S-1 partially: refusal proven at port level). |
 | 2026-11-26 | Phase 2 slice 1: core ids, managed notes, book registry, register command; O-13 resolved. |
 | 2026-11-26 | Spikes S1/S3/S6 desktop-side run; results in SPIKES.md; ADRs D-020..D-023, open O-13. |
 | 2026-11-26 | Phase 1 scaffold: playbook templates applied (config, scripts, CI/release workflows, skills, hook, tests), minimal plugin (onload wrapper, crash guard, log level setting), README, LICENSE. O-1 (decision provider out of MVP) and Android (unverified) recorded. |

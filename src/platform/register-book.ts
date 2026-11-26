@@ -1,7 +1,7 @@
 import { Modal, Notice, Setting, type App, type TFolder } from "obsidian";
 import { registerBook } from "../core/books";
 import { platformRandom } from "./random";
-import { ObsidianVaultPort } from "./vault-port";
+import { createGuardedVault } from "./guarded-vault";
 
 export interface RegisterBookRequest {
 	title: string;
@@ -41,7 +41,7 @@ export async function registerBookInFolder(app: App, folder: TFolder, req: Regis
 		return;
 	}
 	try {
-		const book = await registerBook(new ObsidianVaultPort(app), folder.path, req.title, req.language, platformRandom);
+		const book = await registerBook(createGuardedVault(app), folder.path, req.title, req.language, platformRandom);
 		new Notice(`Registered "${book.title}". Your notes in this folder were not changed.`);
 	} catch (e) {
 		new Notice(e instanceof Error ? e.message : String(e), 8000);
