@@ -14,6 +14,7 @@ export interface BookActions {
 	promoteActive(path: string): void;
 	planChapter(): void;
 	updateStats(): void;
+	summarize(): void;
 	addTodo(): void;
 	completeTodo(manualId: string): void;
 	cancelJob(jobId: string): void;
@@ -35,17 +36,19 @@ const STATUS_LABEL: Record<ChapterStatus, string> = {
 };
 
 const JOB_LABEL: Record<JobRecord["state"], string> = {
-	running: "Counting words",
-	completed: "Word count finished",
-	canceled: "Word count canceled",
-	interrupted: "Word count interrupted",
+	running: "Running",
+	completed: "Finished",
+	canceled: "Canceled",
+	interrupted: "Interrupted",
 	dismissed: "",
 };
+
+const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries" };
 
 function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-job" });
 	const done = job.items.filter((i) => i.state === "done").length;
-	box.createEl("strong", { text: `${JOB_LABEL[job.state]}: ${done} of ${job.items.length} chapters` });
+	box.createEl("strong", { text: `${KIND_LABEL[job.kind]} ${JOB_LABEL[job.state].toLowerCase()}: ${done} of ${job.items.length} chapters` });
 	if (job.state === "interrupted") box.createDiv({ cls: "bh-note", text: "The app closed before it finished. Nothing was restarted; run it again if you want the rest." });
 	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
 	const label = job.state === "running" ? "Cancel" : "Dismiss";
@@ -93,6 +96,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	if (ctx.role === "manuscript") bar.createEl("button", { cls: "bh-button mod-cta", text: "Make this note a chapter" }).addEventListener("click", () => bookActions.promoteActive(ctx.activePath));
 	bar.createEl("button", { cls: "bh-button", text: "Plan a chapter" }).addEventListener("click", () => bookActions.planChapter());
 	bar.createEl("button", { cls: "bh-button", text: "Add a to-do" }).addEventListener("click", () => bookActions.addTodo());
+	bar.createEl("button", { cls: "bh-button", text: "Summarize chapters" }).addEventListener("click", () => bookActions.summarize());
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
@@ -127,6 +131,12 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 		if (row.chapter.notePath === null) head.createSpan({ cls: "bh-badge", text: "No file yet" });
 		if (row.missingNote) head.createSpan({ cls: "bh-badge", text: "Note not found" });
 		if (row.chapter.notePath !== null) li.createDiv({ cls: "bh-note", text: statsLine(row.stats) });
+		if (row.summary.path !== null) {
+			const summaryPath = row.summary.path;
+			const line = li.createDiv({ cls: "bh-note" });
+			line.createSpan({ text: row.summary.status === "stale" ? "Summary (out of date: the text, prompt or model changed) " : "Summary " });
+			line.createEl("button", { cls: "bh-link", text: "Open" }).addEventListener("click", () => bookActions.openNote(summaryPath));
+		}
 		const controls = li.createDiv({ cls: "bh-chapter-controls" });
 		const select = controls.createEl("select", { cls: "bh-select dropdown", attr: { "aria-label": `Status of ${row.chapter.designation}` } });
 		for (const s of CHAPTER_STATUSES) {

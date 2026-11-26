@@ -6,6 +6,7 @@ import { onVaultRename } from "./platform/follow-renames";
 import { PANEL_VIEW_TYPE, BookHarnessView } from "./platform/panel-view";
 import { registerActiveFolder } from "./platform/register-book";
 import { PluginSettingsTab } from "./settings/SettingsTab";
+import { DiagnosticsLog } from "./core/ai/diagnostics";
 import type { NetworkPort } from "./core/ai/network";
 import { obsidianNetwork } from "./platform/network";
 import { DEFAULT_SETTINGS, normalizeSettings, type BookHarnessSettings } from "./settings/defaults";
@@ -18,6 +19,7 @@ export default class BookHarnessPlugin extends Plugin {
 	settings: BookHarnessSettings = { ...DEFAULT_SETTINGS };
 	private readonly runner = new JobRunner();
 	readonly network: NetworkPort = obsidianNetwork;
+	readonly diagnostics = new DiagnosticsLog();
 
 	async onload(): Promise<void> {
 		try {
@@ -42,7 +44,7 @@ export default class BookHarnessPlugin extends Plugin {
 		await this.loadSettings();
 		logDebug("settings loaded");
 		this.addCommand({ id: "register-book", name: "Register this note's folder as a book", callback: () => registerActiveFolder(this.app) });
-		this.registerView(PANEL_VIEW_TYPE, (leaf) => new BookHarnessView(leaf, this.runner));
+		this.registerView(PANEL_VIEW_TYPE, (leaf) => new BookHarnessView(leaf, this.runner, this));
 		this.addCommand({ id: "open-panel", name: "Open the book panel", callback: () => void this.openPanel() });
 		this.addRibbonIcon("book-open", "Open the book panel", () => void this.openPanel());
 		this.app.workspace.onLayoutReady(() => {

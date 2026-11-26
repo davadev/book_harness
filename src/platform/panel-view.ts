@@ -2,16 +2,31 @@ import { ItemView, Notice, TFile, type WorkspaceLeaf } from "obsidian";
 import { listBooks, type Book } from "../core/books";
 import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
 import type { ChapterStatus } from "../core/status";
+import type { SummaryStatus } from "../core/summary";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
 import { addManualTodo, listManualTodos, setManualTodoDone } from "../core/manual-todos";
 import { findConflictCopies } from "../core/sync-conflicts";
 import { JobRunner, dismissJob, listJobs, presentJobs } from "../core/jobs";
+import { DiagnosticsLog } from "../core/ai/diagnostics";
+import type { NetworkPort } from "../core/ai/network";
+import { OllamaClient, normalizeEndpoint } from "../core/ai/ollama";
+import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
+import type { BookHarnessSettings } from "../settings/defaults";
+import { ConfirmModal } from "./confirm-modal";
 import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
+import type { GuardedVault } from "../core/guarded-vault";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
 import { registerActiveFolder } from "./register-book";
+
+/** What the panel needs from the plugin: current settings, the network, and the run log. */
+export interface PanelHost {
+	settings: BookHarnessSettings;
+	network: NetworkPort;
+	diagnostics: DiagnosticsLog;
+}
 
 export const PANEL_VIEW_TYPE = "book-harness-panel";
 
@@ -20,7 +35,7 @@ export class BookHarnessView extends ItemView {
 	private drawing = false;
 	private timer = 0;
 
-	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner) {
+	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner, private readonly host: PanelHost) {
 		super(leaf);
 	}
 
@@ -83,10 +98,14 @@ export class BookHarnessView extends ItemView {
 			const shown = book ? chapters.filter((c) => c.bookId === book.id) : [];
 			const stats = new Map<string, ChapterStats>();
 			for (const c of shown) stats.set(c.id, await chapterStats(vault, book as Book, c));
+			const prompt = book ? await loadPrompt(vault, book) : null;
+			if (prompt) problems.push(...prompt.problems);
+			const summaries = new Map<string, { status: SummaryStatus; path: string | null }>();
+			if (book && prompt) for (const c of shown) summaries.set(c.id, await summaryStatus(vault, book, c, { promptId: prompt.prompt.id, model: this.host.settings.device.generationModel }));
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -95,6 +114,19 @@ export class BookHarnessView extends ItemView {
 			this.drawing = false;
 			if (this.dirty) void this.draw();
 		}
+	}
+
+	private async startSummaries(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
+		const { prompt } = await loadPrompt(vault, book);
+		const client = new OllamaClient(this.host.network, base);
+		const now = () => new Date().toISOString();
+		const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "chapter.summary", "summarize-chapters", chapters, async (chapter, signal) => {
+			const r = await summarizeChapter(vault, book, chapter, { client, model, prompt, signal, diagnostics: this.host.diagnostics, now, sleep });
+			return r.kind === "saved" ? { state: "done", message: r.issues.length ? `Saved, but: ${r.issues.join(" ")}` : undefined } : { state: "discarded", message: r.reason };
+		});
+		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
+		this.markDirty();
 	}
 
 	private actions(allChapters: Chapter[]): OverviewActions {
@@ -133,6 +165,34 @@ export class BookHarnessView extends ItemView {
 					},
 					fail,
 				);
+			},
+			summarize: () => {
+				const device = this.host.settings.device;
+				const base = normalizeEndpoint(device.endpoint);
+				if (base === null || device.generationModel === "") {
+					new Notice("Set the server address and the generation model in the Book Harness settings first.", 8000);
+					return;
+				}
+				if (this.runner.hasRunningJob(book.id)) {
+					new Notice("A job is already running for this book.", 8000);
+					return;
+				}
+				const targets = chapters.filter((c) => c.notePath !== null);
+				if (targets.length === 0) {
+					new Notice("No chapter has a manuscript note yet.", 8000);
+					return;
+				}
+				new ConfirmModal(
+					this.app,
+					"Summarize chapters",
+					[
+						`The text of ${targets.length} chapter${targets.length === 1 ? "" : "s"} will be sent to ${base} using the model "${device.generationModel}".`,
+						"Each summary is saved as a separate note. Your chapters are not changed.",
+						"You can cancel while it runs.",
+					],
+					"Summarize",
+					() => void this.startSummaries(vault, book, targets, base, device.generationModel).catch(fail),
+				).open();
 			},
 			cancelJob: (id) => this.runner.cancel(id),
 			dismissJob: (id) =>

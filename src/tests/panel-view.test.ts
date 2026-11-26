@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBook } from "../core/books";
 import { addChapter } from "../core/chapters";
 import { GuardedVault } from "../core/guarded-vault";
+import { DiagnosticsLog } from "../core/ai/diagnostics";
+import { DEFAULT_SETTINGS } from "../settings/defaults";
 import { JobRunner } from "../core/jobs";
 import { onVaultRename } from "../platform/follow-renames";
 import { PromptModal } from "../platform/prompt-modal";
@@ -38,9 +40,10 @@ async function setup() {
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
 	const runner = new JobRunner();
-	const view = new BookHarnessView({ app: fake.app } as never, runner);
+	const host = { settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
+	const view = new BookHarnessView({ app: fake.app } as never, runner, host);
 	(view as unknown as { app: unknown }).app = fake.app;
-	return { fake, vault, book, one, two, view, store: fake.store, runner };
+	return { fake, vault, book, one, two, view, store: fake.store, runner, host };
 }
 
 const text = (v: BookHarnessView) => v.contentEl.textContent as string;
@@ -292,7 +295,7 @@ describe("BookHarnessView edge cases", () => {
 			return create(p, t);
 		};
 		button(view, "Update word counts").click();
-		await vi.waitFor(() => expect(text(view)).toContain("Counting words: 0 of 2 chapters"));
+		await vi.waitFor(() => expect(text(view)).toContain("Word count running: 0 of 2 chapters"));
 		button(view, "Update word counts").click();
 		expect(Notice.instances.at(-1)?.message).toBe("A word count is already running for this book.");
 		button(view, "Cancel").click();
@@ -353,6 +356,122 @@ describe("BookHarnessView edge cases", () => {
 		await vi.waitFor(() => expect(text(view)).toContain("A sync conflict copy exists"));
 		button(view, "A sync conflict copy exists: Book/one (conflicted copy 2026-11-26).md. Compare it with the original and keep the version you want.").click();
 		expect(fake.openFile).toHaveBeenCalled();
+	});
+
+	it("explains what is missing before offering to summarize, and never calls the model until confirmed", async () => {
+		const { fake, view, host } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		button(view, "Summarize chapters").click();
+		expect(Notice.instances.at(-1)?.message).toMatch(/Set the server address and the generation model/);
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		button(view, "Summarize chapters").click();
+		const dialog = document.body.textContent as string;
+		expect(dialog).toContain("The text of 2 chapters will be sent to http://h:11434 using the model \"gen\"");
+		expect(dialog).toContain("Your chapters are not changed.");
+		expect(host.network.request).not.toHaveBeenCalled();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Cancel")!.click();
+		expect(host.network.request).not.toHaveBeenCalled();
+	});
+
+	it("summarizes after confirmation, shows the summary and flags it out of date when the text changes", async () => {
+		const { fake, view, host, store } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "A short summary.", key_points: ["one"] }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		button(view, "Summarize chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Summarized 2 of 2 chapters."));
+		expect(host.network.request).toHaveBeenCalledTimes(2);
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter summaries finished: 2 of 2 chapters"));
+		expect(text(view)).toContain("Summary Open");
+		expect([...store.keys()].filter((p) => p.includes("/summaries/"))).toHaveLength(2);
+		expect(host.diagnostics.recent()).toHaveLength(2);
+
+		store.set("Book/one.md", "Changed text.");
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("out of date: the text, prompt or model changed"));
+		const open = Array.from(view.contentEl.querySelectorAll(".bh-chapter .bh-link")).find((b) => b.textContent === "Open") as HTMLButtonElement;
+		open.click();
+		expect(fake.openFile).toHaveBeenCalled();
+	});
+
+	it("tells the author when no chapter has a note or a job is already running, and surfaces failures", async () => {
+		const { fake, view, host, store, runner } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		vi.spyOn(runner, "hasRunningJob").mockReturnValueOnce(true);
+		button(view, "Summarize chapters").click();
+		expect(Notice.instances.at(-1)?.message).toBe("A job is already running for this book.");
+		for (const [p, t] of store) if (p.includes("/chapters/")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		view.markDirty();
+		await vi.waitFor(() => expect(text(view)).toContain("No file yet"));
+		button(view, "Summarize chapters").click();
+		expect(Notice.instances.at(-1)?.message).toBe("No chapter has a manuscript note yet.");
+	});
+
+	it("says so when a saved summary still has problems, and uses the singular for one chapter", async () => {
+		const { fake, view, host, store } = await setup();
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "", key_points: [] }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		button(view, "Summarize chapters").click();
+		expect(document.body.textContent).toContain("The text of 1 chapter will be sent");
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
+		await vi.waitFor(() => expect(text(view)).toContain("Chapter 1: Saved, but: The summary is empty."));
+	});
+
+	it("does not store a summary when the chapter changed while the model was working", async () => {
+		const { fake, view, host, store } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation(() => {
+			store.set("Book/one.md", "Rewritten meanwhile.");
+			store.set("Book/two.md", "Rewritten too.");
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "Old news.", key_points: [] }) } }) });
+		});
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		button(view, "Summarize chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
+		await vi.waitFor(() => expect(text(view)).toMatch(/Chapter \d: Chapter \d changed while it was being summarized\./));
+		expect([...store.keys()].filter((p) => p.includes("/summaries/")).length).toBeLessThan(2);
+	});
+
+	it("retries a dropped connection once after a short pause", async () => {
+		const { fake, view, host, store } = await setup();
+		store.delete("Book/two.md");
+		for (const [p, t] of store) if (p.includes("/chapters/") && t.includes("Chapter 2")) store.set(p, t.replace(/note_path: .*/, "note_path: null"));
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockRejectedValueOnce(new Error("blip")).mockImplementation(() => Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify({ summary: "Fine.", key_points: [] }) } }) }));
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		button(view, "Summarize chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Summarized 1 of 1 chapters."), { timeout: 3000 });
+		expect(host.network.request).toHaveBeenCalledTimes(2);
+	});
+
+	it("reports a summary job that could not start", async () => {
+		const { fake, view, host } = await setup();
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Summarize chapters"));
+		fake.appAny.vault.create = () => Promise.reject(new Error("disk full"));
+		button(view, "Summarize chapters").click();
+		Array.from(document.body.querySelectorAll("button")).find((b) => b.textContent === "Summarize")!.click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("disk full"));
 	});
 
 	it("reports non-Error failures from an action", async () => {

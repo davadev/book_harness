@@ -43,6 +43,13 @@ describe("obsidianNetwork", () => {
 		await expect(p).rejects.toMatchObject({ kind: "canceled" });
 	});
 
+	it("rejects at once when it was canceled before the request started", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		await expect(obsidianNetwork.request(req({ signal: controller.signal }))).rejects.toMatchObject({ kind: "canceled" });
+		expect(requestUrlMock.calls).toHaveLength(0);
+	});
+
 	it("wraps a non-Error transport failure", async () => {
 		requestUrlMock.next = () => Promise.reject("weird");
 		await expect(obsidianNetwork.request(req())).rejects.toThrow("weird");

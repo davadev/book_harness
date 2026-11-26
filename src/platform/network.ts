@@ -8,6 +8,7 @@ import type { NetRequest, NetResponse, NetworkPort } from "../core/ai/network";
  */
 export const obsidianNetwork: NetworkPort = {
 	request(req: NetRequest): Promise<NetResponse> {
+		if (req.signal?.aborted) return Promise.reject(new ModelError("canceled", "Canceled."));
 		return new Promise<NetResponse>((resolve, reject) => {
 			let finished = false;
 			const done = (fn: () => void) => {

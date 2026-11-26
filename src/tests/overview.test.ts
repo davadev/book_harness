@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -134,7 +134,7 @@ describe("overview rendering", () => {
 		const overview = { ...buildOverview(book, [], null, () => true), jobs: [job("running"), job("interrupted"), job("completed")] };
 		renderOverview(root, ctx, overview, a);
 		const boxes = Array.from(root.querySelectorAll(".bh-job"));
-		expect(boxes.map((b) => b.querySelector("strong")?.textContent)).toEqual(["Counting words: 1 of 3 chapters", "Word count interrupted: 1 of 3 chapters", "Word count finished: 1 of 3 chapters"]);
+		expect(boxes.map((b) => b.querySelector("strong")?.textContent)).toEqual(["Word count running: 1 of 3 chapters", "Word count interrupted: 1 of 3 chapters", "Word count finished: 1 of 3 chapters"]);
 		expect(boxes[0]?.textContent).toContain("Chapter 2: io");
 		expect(boxes[0]?.textContent).not.toContain("Not run");
 		expect(boxes[1]?.textContent).toContain("Nothing was restarted");
