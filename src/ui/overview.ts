@@ -1,6 +1,7 @@
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Entity } from "../core/entities";
+import type { SearchResult } from "../core/search";
 import type { Overview, PanelContext } from "../core/panel-model";
 import type { JobRecord } from "../core/jobs";
 import type { ChapterStats } from "../core/task-state";
@@ -23,6 +24,8 @@ export interface BookActions {
 	mergeDuplicate(fromId: string, intoId: string): void;
 	keepDistinct(aId: string, bId: string): void;
 	closeEntity(): void;
+	search(query: string): void;
+	openPassage(result: SearchResult): void;
 	addEntity(): void;
 	renameEntity(id: string, current: string): void;
 	addAlias(id: string): void;
@@ -68,6 +71,29 @@ function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): voi
 	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
 	const label = job.state === "running" ? "Cancel" : "Dismiss";
 	box.createEl("button", { cls: "bh-button", text: label }).addEventListener("click", () => (job.state === "running" ? actions.cancelJob(job.id) : actions.dismissJob(job.id)));
+}
+
+function renderSearch(root: HTMLElement, overview: Overview, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-search" });
+	const form = box.createDiv({ cls: "bh-actions" });
+	const input = form.createEl("input", { cls: "bh-input", type: "search", placeholder: "Search this book", attr: { "aria-label": "Search this book" } });
+	input.value = overview.search?.query ?? "";
+	const go = () => actions.search(input.value);
+	form.createEl("button", { cls: "bh-button", text: "Search" }).addEventListener("click", go);
+	// Searching happens on Enter or the button, never on every keystroke: the field keeps focus and the phone keyboard stays open.
+	input.addEventListener("keydown", (e) => {
+		if (e.key === "Enter") go();
+	});
+	const s = overview.search;
+	if (!s) return;
+	box.createDiv({ cls: "bh-note", text: `Keyword search over ${s.passagesIndexed} passages in ${s.chaptersIndexed} chapter${s.chaptersIndexed === 1 ? "" : "s"}, up to date with your notes.${s.missingChapters.length ? ` Not searched, no note yet: ${s.missingChapters.join(", ")}.` : ""}` });
+	if (s.results.length === 0) box.createDiv({ cls: "bh-empty", text: `Nothing found for “${s.query}”. Words are matched exactly as written; this does not mean the idea is absent from the book.` });
+	for (const r of s.results) {
+		const row = box.createDiv({ cls: "bh-result" });
+		row.createEl("button", { cls: "bh-link", text: r.chapter }).addEventListener("click", () => actions.openPassage(r));
+		row.createDiv({ cls: "bh-note", text: r.snippet });
+		if (r.entities.length > 0) row.createDiv({ cls: "bh-note", text: `Mentions: ${r.entities.join(", ")}` });
+	}
 }
 
 function renderSelected(root: HTMLElement, e: Entity, actions: BookActions): void {
@@ -180,6 +206,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
+	renderSearch(root, overview, bookActions);
 	if (overview.selected) renderSelected(root, overview.selected, bookActions);
 	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	for (const entry of overview.proposals) renderProposal(root, entry, bookActions);

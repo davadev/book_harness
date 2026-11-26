@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -260,6 +260,41 @@ describe("overview rendering", () => {
 		expect(a.closeEntity).toHaveBeenCalled();
 		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], { ...sel, aliases: [] }), a);
 		expect(text()).not.toContain("Also:");
+	});
+
+	it("searches on Enter or the button only, and shows what was searched, the results and any chapters without notes", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const result = { ref: { bookId: "bk1", chapterId: "a", passageId: "p", sourceRevision: "r", start: 0, end: 5 }, chapter: "Chapter 1", notePath: "A/a.md", snippet: "…the Zorblax lamp…", score: 1, entities: ["Anna"], provenance: "manuscript" as const };
+		const search = { query: "zorblax", results: [result], passagesIndexed: 12, chaptersIndexed: 1, missingChapters: ["Chapter 2"] };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search), a);
+		const input = root.querySelector("input") as HTMLInputElement;
+		expect(input.value).toBe("zorblax");
+		expect(text()).toContain("Keyword search over 12 passages in 1 chapter, up to date with your notes. Not searched, no note yet: Chapter 2.");
+		expect(text()).toContain("…the Zorblax lamp…");
+		expect(text()).toContain("Mentions: Anna");
+		input.dispatchEvent(new Event("input"));
+		expect(a.search).not.toHaveBeenCalled();
+		input.value = "lamp";
+		input.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+		expect(a.search).not.toHaveBeenCalled();
+		input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+		expect(a.search).toHaveBeenLastCalledWith("lamp");
+		click("Search");
+		expect(a.search).toHaveBeenCalledTimes(2);
+		(Array.from(root.querySelectorAll(".bh-result .bh-link"))[0] as HTMLButtonElement).click();
+		expect(a.openPassage).toHaveBeenCalledWith(result);
+	});
+
+	it("says that finding nothing does not mean the idea is absent, and counts chapters in the singular and plural", () => {
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const none = { query: "ghost", results: [], passagesIndexed: 3, chaptersIndexed: 2, missingChapters: [] };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, none), actions());
+		expect(text()).toContain("in 2 chapters, up to date");
+		expect(text()).toContain("Nothing found for “ghost”. Words are matched exactly as written; this does not mean the idea is absent from the book.");
+		expect(text()).not.toContain("Not searched");
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true), actions());
+		expect((root.querySelector("input") as HTMLInputElement).value).toBe("");
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

@@ -186,3 +186,19 @@
 .bh-ent-object {
 	border-block-end-style: dotted;
 }
+
+.bh-search {
+	margin: var(--size-4-2) 0;
+}
+
+.bh-input {
+	flex: 1 1 8rem;
+	min-height: 44px;
+	min-width: 0;
+}
+
+.bh-result {
+	border-bottom: 1px solid var(--background-modifier-border);
+	overflow-wrap: anywhere;
+	padding: var(--size-4-1) 0;
+}

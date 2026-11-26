@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBook } from "../core/books";
 import { addChapter } from "../core/chapters";
 import { GuardedVault } from "../core/guarded-vault";
+import { BookSearch } from "../core/search";
 import { DiagnosticsLog } from "../core/ai/diagnostics";
 import { DEFAULT_SETTINGS } from "../settings/defaults";
 import { JobRunner } from "../core/jobs";
@@ -12,7 +13,7 @@ import { BookHarnessView, PANEL_VIEW_TYPE } from "../platform/panel-view";
 import { ObsidianVaultPort } from "../platform/vault-port";
 import { counterRandom } from "./__mocks__/fakeVault";
 import { makeFakeApp } from "./__mocks__/fakeApp";
-import { Notice } from "./__mocks__/obsidian";
+import { MarkdownView, Notice } from "./__mocks__/obsidian";
 import { installObsidianDom } from "./__mocks__/obsidianDom";
 
 beforeEach(() => {
@@ -40,7 +41,7 @@ async function setup() {
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
 	const runner = new JobRunner();
-	const host = { selectedEntity: null as string | null, clearSelectedEntity() { host.selectedEntity = null; }, settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
+	const host = { search: new BookSearch(), selectedEntity: null as string | null, clearSelectedEntity() { host.selectedEntity = null; }, settings: structuredClone(DEFAULT_SETTINGS), network: { request: vi.fn((_req?: { body?: string }): Promise<{ status: number; text: string }> => Promise.reject(new Error("no server"))) }, diagnostics: new DiagnosticsLog() };
 	const view = new BookHarnessView({ app: fake.app } as never, runner, host);
 	(view as unknown as { app: unknown }).app = fake.app;
 	return { fake, vault, book, one, two, view, store: fake.store, runner, host };
@@ -792,6 +793,38 @@ describe("BookHarnessView edge cases", () => {
 		view.markDirty();
 		await vi.waitFor(() => expect(text(view)).toContain("Add an entity"));
 		expect(view.contentEl.querySelector(".bh-selected")).toBeNull();
+	});
+
+	it("searches the book on request, jumps to the exact passage, and warns when the chapter changed since", async () => {
+		const { fake, view, store } = await setup();
+		store.set("Book/one.md", "The captain met the Zorblax at dawn.");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Search"));
+		const input = () => view.contentEl.querySelector("input") as HTMLInputElement;
+		button(view, "Search").click();
+		expect(Notice.instances.at(-1)?.message).toBe("Type a word or phrase to search for.");
+		input().value = "zorblax";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Keyword search over"));
+		expect(input().value).toBe("zorblax");
+		expect(text(view)).toContain("The captain met the Zorblax at dawn.");
+		const selected: Array<[unknown, unknown]> = [];
+		const editor = { getValue: () => store.get("Book/one.md")!, offsetToPos: (n: number) => n, setSelection: (a: unknown, b: unknown) => selected.push([a, b]), scrollIntoView: vi.fn() };
+		(fake.leaf as unknown as { view: unknown }).view = Object.assign(new MarkdownView(), { editor });
+		(view.contentEl.querySelector(".bh-result .bh-link") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(selected).toEqual([[0, 36]]));
+		expect(editor.scrollIntoView).toHaveBeenCalled();
+		store.set("Book/one.md", "Edited since the search.");
+		(view.contentEl.querySelector(".bh-result .bh-link") as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("This chapter changed since the search. Search again to jump to the exact place."));
+		(fake.leaf as unknown as { view: unknown }).view = {};
+		(view.contentEl.querySelector(".bh-result .bh-link") as HTMLButtonElement).click();
+		store.delete("Book/one.md");
+		(view.contentEl.querySelector(".bh-result .bh-link") as HTMLButtonElement).click();
+		input().value = "nothingfound";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Nothing found for “nothingfound”"));
 	});
 
 	it("explains what is missing before finding entities", async () => {

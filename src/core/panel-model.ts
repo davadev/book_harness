@@ -2,6 +2,7 @@ import { bookForPath, type Book } from "./books";
 import { readingOrder, type Chapter } from "./chapters";
 import { possibleDuplicates, type DuplicateSuggestion, type Entity } from "./entities";
 import type { JobRecord } from "./jobs";
+import type { SearchOutcome } from "./search";
 import type { CoverageView } from "./proofread";
 import type { Proposal } from "./proposals";
 import type { SummaryStatus } from "./summary";
@@ -31,6 +32,8 @@ export interface Overview {
 	rows: OverviewRow[];
 	/** Required items first, each group in reading order. */
 	todos: Todo[];
+	/** The last search the author ran, if any. */
+	search: SearchOutcome | null;
 	/** The entity the author tapped in the editor, shown in detail. */
 	selected: Entity | null;
 	/** Active entities, by kind then name. */
@@ -59,7 +62,7 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 const NO_SUMMARY: OverviewRow["summary"] = { status: "none", path: null };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = [], conflictCopies: readonly string[] = [], manualTodos: readonly ManualTodo[] = [], summaries: ReadonlyMap<string, OverviewRow["summary"]> = new Map(), proposals: readonly Proposal[] = [], coverage: ReadonlyMap<string, CoverageView> = new Map(), entities: readonly Entity[] = [], unsupported: readonly Entity[] = [], selected: Entity | null = null, search: SearchOutcome | null = null): Overview {
 	const ordered = readingOrder(chapters);
 	const todos = [...manualAsTodos(manualTodos), ...deriveTodos(book, chapters, exists, conflictCopies)];
 	return {
@@ -74,6 +77,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 			proofread: coverage.get(chapter.id) ?? null,
 		})),
 		proposals: proposals.filter((p) => p.edits.some((e) => e.decision !== "rejected" && e.decision !== "applied")).map((proposal) => ({ proposal, designation: chapters.find((c) => c.id === proposal.chapterId)?.designation ?? "Unknown chapter" })),
+		search,
 		selected,
 		entities: [...entities].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name)),
 		duplicates: possibleDuplicates(entities),

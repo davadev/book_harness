@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Notice, TFile, type WorkspaceLeaf } from "obsidian";
 import { listBooks, type Book } from "../core/books";
 import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
 import type { ChapterStatus } from "../core/status";
@@ -15,6 +15,8 @@ import { EXTRACTED_KINDS, extractChapter, loadEvidence, rebuildHistories, unsupp
 import { ENTITY_TYPES, markDistinct, type Entity, activeEntities, addAlias, archiveEntity, createEntity, listAllEntities, mergeEntities, removeAlias, renameEntity, splitEntity } from "../core/entities";
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
+import type { BookSearch, SearchOutcome, SearchResult } from "../core/search";
+import { revisionOf } from "../core/revision";
 import { entitiesForChapter } from "../core/occurrences";
 import { loadPrompt, summarizeChapter, summaryStatus } from "../core/summary";
 import type { BookHarnessSettings } from "../settings/defaults";
@@ -35,6 +37,7 @@ export interface PanelHost {
 	diagnostics: DiagnosticsLog;
 	selectedEntity: string | null;
 	clearSelectedEntity(): void;
+	search: BookSearch;
 }
 
 /** Tell the author what applying did, in plain words. */
@@ -47,6 +50,7 @@ export const PANEL_VIEW_TYPE = "book-harness-panel";
 export class BookHarnessView extends ItemView {
 	private dirty = true;
 	private drawing = false;
+	private lastSearch: SearchOutcome | null = null;
 	private timer = 0;
 
 	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner, private readonly host: PanelHost) {
@@ -129,7 +133,7 @@ export class BookHarnessView extends ItemView {
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -171,6 +175,24 @@ export class BookHarnessView extends ItemView {
 		});
 		new Notice(`Summarized ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
 		this.markDirty();
+	}
+
+	private async openPassage(r: SearchResult): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(r.notePath);
+		if (!(file instanceof TFile)) return;
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(file);
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView)) return;
+		const text = view.editor.getValue();
+		if (revisionOf(text) !== r.ref.sourceRevision) {
+			new Notice("This chapter changed since the search. Search again to jump to the exact place.", 8000);
+			return;
+		}
+		const from = view.editor.offsetToPos(r.ref.start);
+		const to = view.editor.offsetToPos(r.ref.end);
+		view.editor.setSelection(from, to);
+		view.editor.scrollIntoView({ from, to }, true);
 	}
 
 	private async startExtraction(vault: GuardedVault, book: Book, chapters: Chapter[], base: string, model: string): Promise<void> {
@@ -282,6 +304,18 @@ export class BookHarnessView extends ItemView {
 			},
 			decideEdits: (proposalId, editIds, decision) => run(decideEdits(vault, book, chapters, proposalId, editIds, decision)),
 			applyProposal: (proposalId) => run(applyProposalById(vault, book, chapters, proposalId).then(announceApplied)),
+			search: (query) => {
+				if (query.trim() === "") {
+					new Notice("Type a word or phrase to search for.", 8000);
+					return;
+				}
+				run(
+					this.host.search.search(vault, book, chapters, query).then((outcome) => {
+						this.lastSearch = outcome;
+					}),
+				);
+			},
+			openPassage: (result) => void this.openPassage(result),
 			closeEntity: () => {
 				this.host.clearSelectedEntity();
 				this.markDirty();

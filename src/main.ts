@@ -9,6 +9,7 @@ import { onVaultRename } from "./platform/follow-renames";
 import { PANEL_VIEW_TYPE, BookHarnessView } from "./platform/panel-view";
 import { registerActiveFolder } from "./platform/register-book";
 import { PluginSettingsTab } from "./settings/SettingsTab";
+import { BookSearch } from "./core/search";
 import { DiagnosticsLog } from "./core/ai/diagnostics";
 import type { NetworkPort } from "./core/ai/network";
 import { obsidianNetwork } from "./platform/network";
@@ -23,6 +24,7 @@ export default class BookHarnessPlugin extends Plugin {
 	private readonly runner = new JobRunner();
 	readonly network: NetworkPort = obsidianNetwork;
 	readonly diagnostics = new DiagnosticsLog();
+	readonly search = new BookSearch();
 	private editorReview: EditorReview | null = null;
 	/** The entity whose details the panel shows (set by tapping a highlight), or null. */
 	selectedEntity: string | null = null;
