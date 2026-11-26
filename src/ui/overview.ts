@@ -1,3 +1,4 @@
+import type { RelationCandidate } from "../core/temporal/events";
 import type { TranslationRow } from "../core/translation/overview";
 import type { AskResult, Citation } from "../core/agent/ask";
 import type { BookStatistics, Occurrence, WordRow } from "../core/stats/statistics";
@@ -45,6 +46,9 @@ export interface BookActions {
 	addEvent(): void;
 	exportEpub(): void;
 	toggleStatistics(): void;
+	findEvents(): void;
+	acceptCandidate(chapterId: string, id: string): void;
+	rejectCandidate(chapterId: string, id: string): void;
 	translate(language: string): void;
 	resolveConflict(chapterId: string, language: string, conflictId: string, choice: "mine" | "machine"): void;
 	ask(question: string): void;
@@ -80,7 +84,7 @@ const JOB_LABEL: Record<JobRecord["state"], string> = {
 	dismissed: "",
 };
 
-const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading", "entities.extract": "Finding entities", "embeddings.build": "Meaning index", "translation.sync": "Translation" };
+const KIND_LABEL: Record<JobRecord["kind"], string> = { "stats.words": "Word count", "chapter.summary": "Chapter summaries", proofread: "Proofreading", "entities.extract": "Finding entities", "embeddings.build": "Meaning index", "translation.sync": "Translation", "events.find": "Finding events" };
 
 function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
 	const box = root.createDiv({ cls: "bh-job" });
@@ -280,6 +284,32 @@ function renderProposal(root: HTMLElement, entry: Overview["proposals"][number],
 	if (accepted.length > 0) bulk.createEl("button", { cls: "bh-button mod-cta", text: `Apply ${accepted.length} accepted change${accepted.length === 1 ? "" : "s"} to the chapter` }).addEventListener("click", () => actions.applyProposal(proposal.id));
 }
 
+function describeRelation(r: RelationCandidate): string {
+	if (r.kind === "before") return `${r.a} happens before ${r.b}`;
+	if (r.kind === "after_by") return `${r.b} happens ${r.duration} after ${r.a}`;
+	if (r.kind === "same_time") return `${r.a} and ${r.b} happen at the same time`;
+	return `${r.a} happens in ${r.date}`;
+}
+
+function renderCandidates(root: HTMLElement, overview: Overview, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-candidates" });
+	box.createEl("h4", { text: "Suggested events" });
+	box.createDiv({ cls: "bh-note", text: "A model suggested these from your chapters. Nothing is on your timeline until you accept it, and each suggestion shows the words of the chapter it comes from." });
+	for (const entry of overview.eventCandidates) {
+		box.createEl("h5", { text: entry.designation });
+		if (!entry.current) box.createDiv({ cls: "bh-callout", text: "This chapter changed since these were found. They can be rejected, but not accepted: find events again." });
+		const list = box.createEl("ul");
+		const row = (title: string, quote: string, id: string) => {
+			const li = list.createEl("li");
+			li.createSpan({ text: `${title} (the text says: “${quote}”) ` });
+			if (entry.current) li.createEl("button", { cls: "bh-icon-button", text: "Accept", attr: { "aria-label": `Accept: ${title}` } }).addEventListener("click", () => actions.acceptCandidate(entry.chapterId, id));
+			li.createEl("button", { cls: "bh-icon-button", text: "Reject", attr: { "aria-label": `Reject: ${title}` } }).addEventListener("click", () => actions.rejectCandidate(entry.chapterId, id));
+		};
+		for (const e of entry.events) row(`Event: ${e.label}`, e.quote, e.id);
+		for (const r of entry.relations) row(describeRelation(r), r.quote, r.id);
+	}
+}
+
 function timelineRow(list: HTMLElement, r: TimelineRow, actions: BookActions, showChapter: boolean): void {
 	const li = list.createEl("li", { cls: "bh-event" });
 	li.createSpan({ text: r.label });
@@ -315,7 +345,7 @@ function renderTimeline(root: HTMLElement, view: TimelineView, actions: BookActi
 		const list = box.createEl("ul");
 		for (const st of view.statements) {
 			const li = list.createEl("li");
-			li.createSpan({ text: st.text });
+			li.createSpan({ text: st.quote === null ? st.text : `${st.text} (the text says: “${st.quote}”)` });
 			li.createEl("button", { cls: "bh-icon-button", text: "Remove", attr: { "aria-label": `Remove statement: ${st.text}` } }).addEventListener("click", () => actions.removeStatement(st.id));
 		}
 	}
@@ -412,6 +442,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Find characters, places and objects" }).addEventListener("click", () => bookActions.extractEntities());
 	bar.createEl("button", { cls: "bh-button", text: overview?.statistics ? "Hide statistics" : "Show statistics" }).addEventListener("click", () => bookActions.toggleStatistics());
 	bar.createEl("button", { cls: "bh-button", text: "Export as EPUB" }).addEventListener("click", () => bookActions.exportEpub());
+	bar.createEl("button", { cls: "bh-button", text: "Find events in chapters" }).addEventListener("click", () => bookActions.findEvents());
 	bar.createEl("button", { cls: "bh-button", text: "Add an event" }).addEventListener("click", () => bookActions.addEvent());
 	bar.createEl("button", { cls: "bh-button", text: "Add a time relation" }).addEventListener("click", () => bookActions.addTimeRelation());
 	bar.createEl("button", { cls: "bh-button", text: "Add an entity" }).addEventListener("click", () => bookActions.addEntity());
@@ -443,6 +474,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 		for (const e of overview.unsupported) box.createDiv({ text: `${e.name} (${e.type}): the text it was found in has changed. Keep or remove it.` });
 	}
 	if (overview.entities.length > 0) renderEntities(root, overview, bookActions);
+	if (overview.eventCandidates.length > 0) renderCandidates(root, overview, bookActions);
 	if (overview.timeline) renderTimeline(root, overview.timeline, bookActions);
 	if (overview.statistics) renderStatistics(root, overview.statistics, bookActions);
 	if (overview.todos.length > 0) {

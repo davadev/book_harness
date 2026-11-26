@@ -101,6 +101,11 @@ describe("timeline store and view", () => {
 		expect(t.problems.join("\n")).toMatch(/Frontmatter|frontmatter/);
 	});
 
+	it("ignores the event suggestions stored beside the timeline records", async () => {
+		const { raw, vault, book } = await setup();
+		raw.files.set(`${book.folder}/_book-harness/timeline/candidates/ch_x.md`, "---\nbh_schema: 1\nbh_type: event-candidates\nbh_id: ch_x\nbh_book: bk\n---\n");
+		expect((await loadTimeline(vault, book)).problems).toEqual([]);
+	});
 	it("refuses self-relations, months as durations, bad dates and concurrent edits", async () => {
 		const { raw, vault, book, random } = await setup();
 		const a = await addEvent(vault, book, [], "A", null, random);

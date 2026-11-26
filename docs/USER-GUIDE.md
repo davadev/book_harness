@@ -33,6 +33,7 @@ What we measured with real local models is in `docs/evals/`. Short version: summ
 | Summarize chapters | One summary note per chapter, marked out of date when the chapter changes | yes |
 | Proofread chapters | Paragraph by paragraph; produces a proposal you accept or reject change by change in the editor | yes |
 | Find characters, places and objects | Creates entities with a quote as evidence; highlights them in the editor; you can merge, rename, add aliases | yes |
+| Find events in chapters | A model suggests events and what the text says about their timing, each with the words it comes from; you accept or reject each one; only accepted ones reach the timeline | yes |
 | Add an event / Add a time relation | Build a timeline by hand: "A before B", "B three days after A", "same time", a date (year, month or day). The panel shows what the evidence settles and what it does not, and shows a contradiction with the statements behind it | no |
 | Translations | For each target language: translate or update a chapter. Only changed paragraphs are sent; a paragraph whose translation you edited is never replaced without asking; decisions appear in the panel | yes |
 | Command: Suggest other words for the selected word | Select a word in a chapter; it shows alternatives that fit that sentence; the one you choose becomes a proposal you accept in the chapter | yes |
@@ -54,4 +55,4 @@ What we measured with real local models is in `docs/evals/`. Short version: summ
 
 ## Not built yet
 
-Illustrations and PDF export, graphical timeline, model event extraction, character analysis, contradiction search, contextual synonyms, saved chats, a visual editor for prompt overrides, a diagnostics view. See `STATUS.md`.
+Illustrations and PDF export, graphical timeline, merging events found in several chapters, character analysis, contradiction search, contextual synonyms, saved chats, a visual editor for prompt overrides, a diagnostics view. See `STATUS.md`.

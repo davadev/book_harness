@@ -28,6 +28,7 @@ import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
 import type { GuardedVault } from "../core/guarded-vault";
+import type { EventCandidate, RelationCandidate } from "../core/temporal/events";
 import type { StoredConstraint, TimelineEvent } from "../core/temporal/timeline";
 import { addAfterBy, addBefore, addDate, addEvent, addSimultaneous, buildTimeline, loadTimeline, parseCivil, retireConstraint, retireEvent } from "../core/temporal/timeline";
 import { buildEpub } from "../core/publishing/epub";
@@ -35,6 +36,7 @@ import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
 import { askBook, chronologyText, gatherEvidence, type AskResult, type Citation } from "../core/agent/ask";
+import { acceptCandidate, candidatesAreCurrent, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
 import { loadGlossary, syncTranslation, type Resolution } from "../core/translation/translate";
 import { PromptModal } from "./prompt-modal";
@@ -158,9 +160,18 @@ export class BookHarnessView extends ItemView {
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
 			const translations = book ? await loadTranslationOverview(vault, book, shown) : [];
+			const eventCandidates: Array<{ chapterId: string; designation: string; current: boolean; events: EventCandidate[]; relations: RelationCandidate[] }> = [];
+			if (book)
+				for (const c of shown) {
+					const found = c.notePath !== null && vault.exists(c.notePath) ? await loadCandidates(vault, book, c.id) : null;
+					if (!found) continue;
+					const events = found.events.filter((e) => found.decided[e.id] === undefined);
+					const relations = found.relations.filter((r) => found.decided[r.id] === undefined);
+					if (events.length + relations.length > 0) eventCandidates.push({ chapterId: c.id, designation: c.designation, current: candidatesAreCurrent(found, await vault.read(c.notePath as string)), events, relations });
+				}
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations, eventCandidates) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -266,6 +277,18 @@ export class BookHarnessView extends ItemView {
 			return { state: "done", message: parts.join("; ") };
 		});
 		new Notice(`Translation: ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters done.`, 8000);
+		this.markDirty();
+	}
+
+	private async startEventSearch(vault: GuardedVault, book: Book, targets: Chapter[], base: string, model: string): Promise<void> {
+		const client = new OllamaClient(this.host.network, base);
+		const now = () => new Date().toISOString();
+		const job = await this.runner.runChapterJob({ vault, book, random: platformRandom, now, onChange: () => this.scheduleRefresh() }, "events.find", "find-events", targets, async (chapter, signal) => {
+			const r = await findEvents(vault, book, chapter, { client, model, signal, diagnostics: this.host.diagnostics, now, sleep });
+			if (r.kind === "discarded-stale") return { state: "discarded", message: `${chapter.designation} changed while it was being read; nothing was recorded.` };
+			return { state: "done", message: [`${r.events} events and ${r.relations} relations suggested`, r.dropped ? `${r.dropped} left out because the quote or names did not check out` : "", ...r.issues].filter((x) => x !== "").join("; ") };
+		});
+		new Notice(`Looked for events in ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters.`, 8000);
 		this.markDirty();
 	}
 
@@ -531,6 +554,14 @@ export class BookHarnessView extends ItemView {
 				if (ready === null) return;
 				new ConfirmModal(this.app, "Use a new translation", ["This replaces your own translation of this paragraph with a new one made by the model. The paragraph and its neighbours are sent to " + ready.base + ".", "Your chapter is not changed."], "Replace mine", () => void this.startTranslation(vault, book, [chapter], language, ready.base, ready.device.generationModel, { [conflictId]: "machine" }).catch(fail)).open();
 			},
+			findEvents: () => {
+				const ready = this.readyToSend(book, chapters);
+				if (ready === null) return;
+				const { base, device, targets } = ready;
+				new ConfirmModal(this.app, "Find events in chapters", [`The text of ${targets.length} chapter(s) will be sent to ${base} using the model "${device.generationModel}".`, "The model only suggests events and what the text says about when they happen. Each suggestion shows the words it comes from, and nothing is added to your timeline until you accept it. Your chapters are not changed.", "You can cancel while it runs."], "Find events", () => void this.startEventSearch(vault, book, targets, base, device.generationModel).catch(fail)).open();
+			},
+			acceptCandidate: (chapterId, id) => run(acceptCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id, platformRandom)),
+			rejectCandidate: (chapterId, id) => run(rejectCandidate(vault, book, chapters.find((c) => c.id === chapterId) as Chapter, id)),
 			toggleStatistics: () => {
 				if (this.statistics?.bookId === book.id) {
 					this.statistics = null;

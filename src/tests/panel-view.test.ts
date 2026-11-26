@@ -1431,3 +1431,51 @@ describe("BookHarnessView translations", () => {
 		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
 	});
 });
+
+describe("BookHarnessView event suggestions", () => {
+	const modalButton = (label: string) => Array.from(document.body.querySelectorAll("button")).filter((b) => b.textContent === label).at(-1) as HTMLButtonElement;
+	const reply = { events: [{ label: "Lamp goes out", quote: "The lamp went out" }, { label: "Door opens", quote: "the door opened" }], relations: [{ kind: "before", a: "Lamp goes out", b: "Door opens", duration: "", date: "", quote: "The lamp went out and the door opened" }] };
+
+	it("finds events after confirmation, shows them with their quotes, and builds the timeline only from what is accepted", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The lamp went out and the door opened.");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockResolvedValue({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify(reply) } }) });
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find events in chapters"));
+		button(view, "Find events in chapters").click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("nothing is added to your timeline until you accept it".replace("nothing", "nothing")));
+		expect(host.network.request).not.toHaveBeenCalled();
+		modalButton("Find events").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Suggested events"));
+		expect(text(view)).toContain("Lamp goes out happens before Door opens (the text says: “The lamp went out and the door opened”)");
+		expect(text(view)).not.toContain("Timeline (");
+		(view.contentEl.querySelector('button[aria-label="Accept: Lamp goes out happens before Door opens"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).toContain("Timeline (2 events)"));
+		expect(text(view)).toContain("(the text says: “The lamp went out and the door opened”)");
+		(view.contentEl.querySelector('button[aria-label="Reject: Event: Lamp goes out"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(view.contentEl.querySelector('button[aria-label="Reject: Event: Lamp goes out"]')).toBeNull());
+		(view.contentEl.querySelector('button[aria-label="Reject: Event: Door opens"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Suggested events"));
+	});
+	it("says when the chapter changed while looking, and when the server is not set up", async () => {
+		const { fake, view, host, store } = await setup();
+		store.set("Book/one.md", "The lamp went out and the door opened.");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Find events in chapters"));
+		button(view, "Find events in chapters").click();
+		expect(Notice.instances.at(-1)?.message).toContain("Set the server address");
+		host.settings.device = { endpoint: "http://h:11434", generationModel: "gen", embeddingModel: "" };
+		host.network.request.mockImplementation((req?: { body?: string }) => {
+			if ((req?.body ?? "").includes("<passage>\\nThe lamp went out")) store.set("Book/one.md", "Rewritten while the model was working.");
+			return Promise.resolve({ status: 200, text: JSON.stringify({ message: { content: JSON.stringify(reply) } }) });
+		});
+		button(view, "Find events in chapters").click();
+		modalButton("Find events").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toContain("Looked for events in"));
+		await vi.waitFor(() => expect(text(view)).toContain("changed while it was being read; nothing was recorded."));
+		expect(text(view)).not.toContain("Suggested events");
+	});
+});

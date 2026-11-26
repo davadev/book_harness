@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn(), addEvent: vi.fn(), exportEpub: vi.fn(), toggleStatistics: vi.fn(), findEvents: vi.fn(), acceptCandidate: vi.fn(), rejectCandidate: vi.fn(), translate: vi.fn(), resolveConflict: vi.fn(), ask: vi.fn(), openCitation: vi.fn(), openOccurrence: vi.fn(), addTimeRelation: vi.fn(), removeStatement: vi.fn(), removeEvent: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -507,5 +507,44 @@ describe("translations rendering", () => {
 		const single = [{ language: "de", name: "German", rows: [row(8, { state: "missing" }, 1)], toTranslate: 1 }];
 		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), translations: single as never }, a);
 		expect(text()).toContain("Translate or update German (1 paragraph)");
+	});
+});
+
+describe("event suggestions rendering", () => {
+	const ctx = { kind: "book", book, activePath: "A/x.md", role: "manuscript", chapterId: null } as const;
+	const rel = (kind: "before" | "after_by" | "same_time" | "date", id: string) => ({ id, kind, a: "Lamp goes out", b: kind === "date" ? "" : "Door opens", duration: "3 days", date: "1913-04", quote: `quote ${id}` });
+
+	it("describes every kind of suggestion with its quote and lets the author decide", () => {
+		const a = actions();
+		const entry = { chapterId: "c1", designation: "Chapter 1", current: true, events: [{ id: "e1", label: "Lamp goes out", quote: "quote e1" }], relations: [rel("before", "r1"), rel("after_by", "r2"), rel("same_time", "r3"), rel("date", "r4")] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), eventCandidates: [entry] }, a);
+		const t = text();
+		expect(t).toContain("Event: Lamp goes out (the text says: “quote e1”)");
+		expect(t).toContain("Lamp goes out happens before Door opens");
+		expect(t).toContain("Door opens happens 3 days after Lamp goes out");
+		expect(t).toContain("Lamp goes out and Door opens happen at the same time");
+		expect(t).toContain("Lamp goes out happens in 1913-04");
+		(root.querySelector('button[aria-label="Accept: Event: Lamp goes out"]') as HTMLButtonElement).click();
+		expect(a.acceptCandidate).toHaveBeenCalledWith("c1", "e1");
+		(root.querySelector('button[aria-label="Reject: Lamp goes out happens in 1913-04"]') as HTMLButtonElement).click();
+		expect(a.rejectCandidate).toHaveBeenCalledWith("c1", "r4");
+		click("Find events in chapters");
+		expect(a.findEvents).toHaveBeenCalled();
+	});
+	it("does not offer to accept suggestions from a chapter that changed", () => {
+		const a = actions();
+		const entry = { chapterId: "c1", designation: "Chapter 1", current: false, events: [{ id: "e1", label: "Lamp goes out", quote: "q" }], relations: [] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), eventCandidates: [entry] }, a);
+		expect(text()).toContain("find events again");
+		expect(root.querySelector('button[aria-label^="Accept"]')).toBeNull();
+		expect(root.querySelector('button[aria-label^="Reject"]')).not.toBeNull();
+	});
+	it("shows where a statement came from in the text", () => {
+		const a = actions();
+		const row = { id: "x", label: "X", chapter: null, when: null, definite: false, because: [], after: [] };
+		renderOverview(root, ctx, { ...buildOverview(book, [], null, () => true), timeline: { narrative: [row], world: [row], unordered: [], conflict: null, statements: [{ id: "s", text: "X happens in 1913", quote: "In the spring of 1913" }, { id: "t", text: "Y before X", quote: null }] } }, a);
+		expect(text()).toContain("X happens in 1913 (the text says: “In the spring of 1913”)");
+		expect(text()).toContain("Y before X");
+		expect(text()).not.toContain("Y before X (the text says");
 	});
 });

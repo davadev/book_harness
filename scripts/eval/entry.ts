@@ -13,6 +13,7 @@ import { extractChapter } from "../../src/core/extraction";
 import { GuardedVault } from "../../src/core/guarded-vault";
 import { PROOFREAD_PROMPT, proofreadChapter } from "../../src/core/proofread";
 import { proseSegments } from "../../src/core/segmentation";
+import { findEvents, loadCandidates } from "../../src/core/temporal/events";
 import { syncTranslation } from "../../src/core/translation/translate";
 import { askBook, gatherEvidence } from "../../src/core/agent/ask";
 import { BookSearch } from "../../src/core/search";
@@ -162,6 +163,26 @@ async function evalModel(model: string, embed: string, digests: Map<string, stri
 			} catch (e) {
 				lines.push(`- ${language}: FAILED ${(e as Error).message}`, "");
 			}
+		}
+	}
+
+	if (STEPS.includes("events")) {
+		const { vault, book, chapters } = await setupBook();
+		lines.push("### Event suggestions", "", "| Chapter | Time | Events | Relations | Left out |", "|---|---|---|---|---|");
+		for (const c of chapters) {
+			const t0 = Date.now();
+			try {
+				const r = await findEvents(vault, book, c, { client, model, diagnostics: diag, now: () => new Date().toISOString(), sleep });
+				lines.push(`| ${c.designation} | ${secs(t0)} s | ${r.events} | ${r.relations} | ${r.dropped} |`);
+			} catch (e) {
+				lines.push(`| ${c.designation} | ${secs(t0)} s | FAILED | | ${(e as Error).message} |`);
+			}
+		}
+		lines.push("");
+		for (const c of chapters) {
+			const found = await loadCandidates(vault, book, c.id);
+			if (!found) continue;
+			lines.push(`**${c.designation}**`, "", ...found.events.map((e) => `- event: ${e.label} — “${e.quote.slice(0, 80)}”`), ...found.relations.map((r) => `- ${r.kind}: ${r.a}${r.b ? ` / ${r.b}` : ""}${r.duration ? ` (${r.duration})` : ""}${r.date ? ` (${r.date})` : ""} — “${r.quote.slice(0, 80)}”`), "");
 		}
 	}
 
