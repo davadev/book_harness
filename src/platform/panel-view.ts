@@ -16,6 +16,7 @@ import { ENTITY_TYPES, markDistinct, type Entity, activeEntities, addAlias, arch
 import { listProposals } from "../core/proposals";
 import { applyProposalById, decideEdits } from "../core/review";
 import type { IndexStorePort } from "../core/embeddings";
+import type { PassageContext } from "../core/graph";
 import type { BookSearch, SearchOutcome, SearchResult } from "../core/search";
 import { revisionOf } from "../core/revision";
 import { entitiesForChapter } from "../core/occurrences";
@@ -54,6 +55,7 @@ export class BookHarnessView extends ItemView {
 	private drawing = false;
 	private lastSearch: SearchOutcome | null = null;
 	private useMeaning = false;
+	private readonly contexts = new Map<string, PassageContext>();
 	private timer = 0;
 
 	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner, private readonly host: PanelHost) {
@@ -139,7 +141,7 @@ export class BookHarnessView extends ItemView {
 			const manual = book ? await listManualTodos(vault, book) : [];
 			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
 			problems.push(...jobs.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -333,6 +335,7 @@ export class BookHarnessView extends ItemView {
 					return;
 				}
 				this.useMeaning = meaning;
+				this.contexts.clear();
 				const semantic = meaning ? this.semantic() : null;
 				run(
 					this.host.search.search(vault, book, chapters, query, 20, semantic).then((outcome) => {
@@ -357,6 +360,12 @@ export class BookHarnessView extends ItemView {
 				).open();
 			},
 			openPassage: (result) => void this.openPassage(result),
+			showContext: (result) =>
+				run(
+					this.host.search.context(vault, book, chapters, result.ref).then((context) => {
+						this.contexts.set(`${result.ref.chapterId}:${result.ref.passageId}`, context);
+					}),
+				),
 			closeEntity: () => {
 				this.host.clearSelectedEntity();
 				this.markDirty();

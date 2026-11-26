@@ -882,6 +882,22 @@ describe("BookHarnessView edge cases", () => {
 		}
 	});
 
+	it("shows the context of a search hit on request and forgets it when the search changes", async () => {
+		const { fake, view, store } = await setup();
+		store.set("Book/one.md", "Philip Marlowe met the Zorblax.");
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Search"));
+		(view.contentEl.querySelector("input[type=search]") as HTMLInputElement).value = "zorblax";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Show context"));
+		button(view, "Show context").click();
+		await vi.waitFor(() => expect(text(view)).toContain("No known entity is named in this passage."));
+		(view.contentEl.querySelector("input[type=search]") as HTMLInputElement).value = "zorblax";
+		button(view, "Search").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Show context"));
+	});
+
 	it("explains what is missing before building the meaning index", async () => {
 		const { fake, view, host } = await setup();
 		fake.state.active = "Book/one.md";

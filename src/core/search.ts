@@ -4,6 +4,7 @@ import type { Chapter } from "./chapters";
 import { activeEntities, listAllEntities } from "./entities";
 import { VectorIndex, type IndexStatus, type IndexStorePort } from "./embeddings";
 import { loadEvidence } from "./extraction";
+import { KnowledgeGraph, buildGraph, expandPassage, type GraphInput, type PassageContext } from "./graph";
 import { entitiesForChapter, findOccurrences, loadCorrections } from "./occurrences";
 import { passagesOf } from "./passages";
 import type { VaultPort } from "./ports";
@@ -107,6 +108,28 @@ export class BookSearch {
 		const vectors = await this.vectorIndex(book, semantic.store);
 		await vectors.dropChapters(semantic.store, missing.map((c) => c.id));
 		return vectors.buildChapter(semantic.client, semantic.store, semantic.model, chapter.id, index.passages().filter((p) => p.chapterId === chapter.id), signal);
+	}
+
+	/**
+	 * The book's graph and a bounded view of everything around one passage: who is named in it, what each chapter's text
+	 * supports about them, who else appears with them. Built from the notes as they are now; nothing is inferred by a model.
+	 */
+	async context(vault: VaultPort, book: Book, chapters: readonly Chapter[], ref: Pick<PassageRef, "chapterId" | "passageId">): Promise<PassageContext> {
+		const { index, withNotes, texts } = await this.sync(vault, book, chapters);
+		const all = (await listAllEntities(vault, book)).entities;
+		const evidence = (await Promise.all(withNotes.map((c) => loadEvidence(vault, book, c.id)))).filter((e): e is NonNullable<typeof e> => e !== null);
+		const mentions: Array<GraphInput["mentions"][number]> = [];
+		const present = new Map<string, (typeof all)[number]>();
+		for (const c of withNotes) {
+			const corrections = await loadCorrections(vault, book, c.id);
+			const ids = [...(evidence.find((e) => e.chapterId === c.id)?.items.map((i) => i.entityId) ?? []), ...corrections.manual.map((x) => x.entityId)];
+			const here = entitiesForChapter(all, ids);
+			for (const e of here) present.set(e.id, e);
+			for (const o of findOccurrences(texts.get(c.id) as string, activeEntities(here), corrections)) mentions.push({ chapterId: c.id, entityId: o.entityId, from: o.from, to: o.to, source: o.source });
+		}
+		const input: GraphInput = { chaptersInOrder: withNotes.map((c) => ({ id: c.id, designation: c.designation })), passages: index.passages().map((p) => ({ chapterId: p.chapterId, passageId: p.id, start: p.start, end: p.end })), entities: [...present.values()], mentions, evidence };
+		const graph: KnowledgeGraph = buildGraph(input);
+		return expandPassage(graph, input, ref);
 	}
 
 	async search(vault: VaultPort, book: Book, chapters: readonly Chapter[], query: string, limit = 20, semantic: Semantic | null = null): Promise<SearchOutcome> {

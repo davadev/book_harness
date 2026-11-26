@@ -13,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn(), addTodo: vi.fn(), completeTodo: vi.fn(), summarize: vi.fn(), proofread: vi.fn(), decideEdits: vi.fn(), applyProposal: vi.fn(), addEntity: vi.fn(), renameEntity: vi.fn(), addAlias: vi.fn(), mergeEntity: vi.fn(), removeAlias: vi.fn(), splitEntity: vi.fn(), archiveEntity: vi.fn(), closeEntity: vi.fn(), search: vi.fn(), openPassage: vi.fn(), showContext: vi.fn(), buildMeaning: vi.fn(), extractEntities: vi.fn(), mergeDuplicate: vi.fn(), keepDistinct: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -313,6 +313,27 @@ describe("overview rendering", () => {
 		expect(root.querySelector('input[type="checkbox"]')).toBeNull();
 		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, { ...search, meaning: { requested: true, used: false, status: null, note: null } }, { available: true, enabled: false, status: null }), a);
 		expect(root.querySelector(".bh-search")?.textContent).not.toContain("Meaning index:");
+	});
+
+	it("expands a search hit into its context on request, labelling what is inferred and what was cut", () => {
+		const a = actions();
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const hit = { channels: { keyword: 1, meaning: null }, ref: { bookId: "bk1", chapterId: "a", passageId: "p1", sourceRevision: "r", start: 0, end: 1 }, chapter: "Chapter 1", notePath: "A/a.md", snippet: "text", score: 1, entities: [], provenance: "manuscript" as const };
+		const search = { query: "q", results: [hit], passagesIndexed: 1, chaptersIndexed: 1, missingChapters: [], meaning: { requested: false, used: false, status: null, note: null } };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search), a);
+		click("Show context");
+		expect(a.showContext).toHaveBeenCalledWith(hit);
+		const none = { entities: [], truncated: false };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search, undefined, new Map([["a:p1", none]])), a);
+		expect(text()).toContain("No known entity is named in this passage.");
+		expect(text()).not.toContain("Show context");
+		const full = { truncated: true, entities: [{ entityId: "e", name: "Anna", type: "character", history: [{ chapter: "Chapter 1", note: "Speaks.", quote: "said Anna" }, { chapter: "Chapter 2", note: "", quote: "Anna again" }], alsoNamed: [{ name: "Philip", basis: "b" }], provenance: ["observed" as const, "inferred" as const] }, { entityId: "f", name: "Lamp", type: "object", history: [], alsoNamed: [], provenance: ["observed" as const] }] };
+		renderOverview(root, ctx, buildOverview(book, [], null, () => true, new Map(), [], [], [], new Map(), [], new Map(), [], [], null, search, undefined, new Map([["a:p1", full]])), a);
+		expect(text()).toContain("Anna (character)");
+		expect(text()).toContain("Chapter 1: Speaks. “said Anna”");
+		expect(text()).toContain("Chapter 2: Appears. “Anna again”");
+		expect(text()).toContain("Also named here (inferred from proximity only): Philip.");
+		expect(text()).toContain("This is a selection: more is known than is shown.");
 	});
 
 	it("says that finding nothing does not mean the idea is absent, and counts chapters in the singular and plural", () => {

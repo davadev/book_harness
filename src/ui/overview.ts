@@ -2,6 +2,7 @@ import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Entity } from "../core/entities";
 import type { IndexStatus } from "../core/embeddings";
+import type { PassageContext } from "../core/graph";
 import type { SearchResult } from "../core/search";
 import type { Overview, PanelContext } from "../core/panel-model";
 import type { JobRecord } from "../core/jobs";
@@ -28,6 +29,7 @@ export interface BookActions {
 	search(query: string, meaning: boolean): void;
 	buildMeaning(): void;
 	openPassage(result: SearchResult): void;
+	showContext(result: SearchResult): void;
 	addEntity(): void;
 	renameEntity(id: string, current: string): void;
 	addAlias(id: string): void;
@@ -117,7 +119,21 @@ function renderSearch(root: HTMLElement, overview: Overview, actions: BookAction
 		row.createSpan({ cls: "bh-badge", text: how });
 		row.createDiv({ cls: "bh-note", text: r.snippet });
 		if (r.entities.length > 0) row.createDiv({ cls: "bh-note", text: `Mentions: ${r.entities.join(", ")}` });
+		const context = overview.contexts.get(`${r.ref.chapterId}:${r.ref.passageId}`);
+		if (!context) row.createEl("button", { cls: "bh-link", text: "Show context" }).addEventListener("click", () => actions.showContext(r));
+		else renderContext(row, context);
 	}
+}
+
+function renderContext(row: HTMLElement, c: PassageContext): void {
+	const box = row.createDiv({ cls: "bh-context-box" });
+	if (c.entities.length === 0) box.createDiv({ cls: "bh-note", text: "No known entity is named in this passage." });
+	for (const e of c.entities) {
+		box.createEl("strong", { text: `${e.name} (${e.type})` });
+		for (const h of e.history) box.createDiv({ cls: "bh-note", text: `${h.chapter}: ${h.note === "" ? "Appears." : h.note} “${h.quote}”` });
+		if (e.alsoNamed.length > 0) box.createDiv({ cls: "bh-note", text: `Also named here (inferred from proximity only): ${e.alsoNamed.map((a) => a.name).join(", ")}.` });
+	}
+	if (c.truncated) box.createDiv({ cls: "bh-note", text: "This is a selection: more is known than is shown." });
 }
 
 function renderSelected(root: HTMLElement, e: Entity, actions: BookActions): void {
