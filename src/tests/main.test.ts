@@ -48,7 +48,7 @@ describe("BookHarnessPlugin", () => {
 		Object.assign((plugin.app as unknown as { workspace: object }).workspace, { getActiveFile: () => null });
 		Notice.instances.length = 0;
 		await plugin.onload();
-		expect(added.map((c) => c.id)).toEqual(["register-book", "toggle-highlights", "link-selection", "remove-highlight", "open-panel"]);
+		expect(added.map((c) => c.id)).toEqual(["register-book", "toggle-highlights", "link-selection", "remove-highlight", "suggest-alternatives", "open-panel"]);
 		added[0]?.callback();
 		expect(Notice.instances[0]?.message).toMatch(/Open a note/);
 	});
@@ -101,6 +101,8 @@ describe("BookHarnessPlugin", () => {
 		const view = { file: null };
 		p.commands.find((c) => c.id === "link-selection")?.editorCallback?.(editor, view);
 		p.commands.find((c) => c.id === "remove-highlight")?.editorCallback?.(editor, view);
+		p.commands.find((c) => c.id === "suggest-alternatives")?.editorCallback?.(editor, view);
+		await vi.waitFor(() => expect(Notice.instances.map((n) => n.message)).toContain("Select one word (or a short phrase of up to three words) first."));
 		await vi.waitFor(() => expect(Notice.instances.map((n) => n.message)).toContain("Select the words you want to link first."));
 		await vi.waitFor(() => expect(Notice.instances.map((n) => n.message)).toContain("There is no highlight at the cursor."));
 		expect(p.editorExtensions).toHaveLength(2);

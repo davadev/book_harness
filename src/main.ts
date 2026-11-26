@@ -2,6 +2,7 @@ import { Notice, Plugin, type MarkdownView } from "obsidian";
 import { DEFAULT_CRASH_STATE, crashStatePath, decideOnLoad, readCrashState, writeCrashState } from "./crashGuard";
 import { logDebug, logError, logWarn, setLogLevel } from "./logger";
 import { EditorHighlights } from "./platform/editor-highlights";
+import { suggestForSelection } from "./platform/synonym-command";
 import { linkSelection, removeHighlightAtCursor } from "./platform/highlight-commands";
 import { EditorReview } from "./platform/editor-review";
 import { JobRunner } from "./core/jobs";
@@ -70,6 +71,7 @@ export default class BookHarnessPlugin extends Plugin {
 		});
 		this.addCommand({ id: "link-selection", name: "Link the selected words to an entity", editorCallback: (editor, view) => void linkSelection(this.app, highlights, editor, view as MarkdownView) });
 		this.addCommand({ id: "remove-highlight", name: "Remove the entity highlight at the cursor", editorCallback: (editor, view) => void removeHighlightAtCursor(this.app, highlights, editor, view as MarkdownView) });
+		this.addCommand({ id: "suggest-alternatives", name: "Suggest other words for the selected word", editorCallback: (editor, view) => void suggestForSelection(this.app, this, highlights, this.editorReview as EditorReview, editor, view as MarkdownView) });
 		this.registerView(PANEL_VIEW_TYPE, (leaf) => new BookHarnessView(leaf, this.runner, this));
 		this.addCommand({ id: "open-panel", name: "Open the book panel", callback: () => void this.openPanel() });
 		this.addRibbonIcon("book-open", "Open the book panel", () => void this.openPanel());

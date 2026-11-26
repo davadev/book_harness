@@ -39,6 +39,7 @@ import { loadTranslationOverview, type LanguageOverview } from "../core/translat
 import { loadGlossary, syncTranslation, type Resolution } from "../core/translation/translate";
 import { PromptModal } from "./prompt-modal";
 import { platformRandom } from "./random";
+import { sleep } from "./sleep";
 import { registerActiveFolder } from "./register-book";
 
 /** What the panel needs from the plugin: current settings, the network, and the run log. */
@@ -56,8 +57,6 @@ export interface PanelHost {
 export function announceApplied(result: { applied: number; conflicts: string[] }): void {
 	new Notice(`Applied ${result.applied} change${result.applied === 1 ? "" : "s"}.${result.conflicts.length ? ` ${result.conflicts.length} could not be placed because the text changed; they were left for you.` : ""}`, 8000);
 }
-
-const sleep = (ms: number): Promise<void> => new Promise<void>((r) => window.setTimeout(r, ms));
 
 export const PANEL_VIEW_TYPE = "book-harness-panel";
 

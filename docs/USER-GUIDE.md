@@ -20,7 +20,7 @@ Book Harness is early software. **Nothing in it has been run in a real Obsidian 
 
 Settings → Book Harness. Give the address of your Ollama server (for example `http://192.168.1.20:11434`) and the model names. These settings stay on this device and are not synced. **Test connection** lists the models the server has. From a phone, the server must be reachable over your network; Android is not verified.
 
-What we measured with real local models is in `docs/evals/`. Short version: summaries, "ask the book", entity finding and translation work, small models make factual slips and miss some typos, so everything is shown as a draft you check.
+What we measured with real local models is in `docs/evals/`. Short version: summaries, "ask the book", entity finding and translation into German work as drafts; small models make factual slips and miss some typos; **translation into Czech was poor with the two models tried** (invented and ungrammatical words), so treat it as a rough starting point for a human translator, and expect Slovak to be no better.
 
 ## What you can do
 
@@ -35,6 +35,7 @@ What we measured with real local models is in `docs/evals/`. Short version: summ
 | Find characters, places and objects | Creates entities with a quote as evidence; highlights them in the editor; you can merge, rename, add aliases | yes |
 | Add an event / Add a time relation | Build a timeline by hand: "A before B", "B three days after A", "same time", a date (year, month or day). The panel shows what the evidence settles and what it does not, and shows a contradiction with the statements behind it | no |
 | Translations | For each target language: translate or update a chapter. Only changed paragraphs are sent; a paragraph whose translation you edited is never replaced without asking; decisions appear in the panel | yes |
+| Command: Suggest other words for the selected word | Select a word in a chapter; it shows alternatives that fit that sentence; the one you choose becomes a proposal you accept in the chapter | yes |
 | Export as EPUB | Builds an EPUB 3 into `<book folder>/exports/`. A book that is not finished (author missing, chapters below the required status, empty chapters) can only be exported as a draft, saved under a different name with the omissions listed | no |
 
 ## Reading what the panel tells you
