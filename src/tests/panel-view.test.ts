@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBook } from "../core/books";
 import { addChapter } from "../core/chapters";
 import { GuardedVault } from "../core/guarded-vault";
+import { JobRunner } from "../core/jobs";
 import { onVaultRename } from "../platform/follow-renames";
 import { PromptModal } from "../platform/prompt-modal";
 import { BookHarnessView, PANEL_VIEW_TYPE } from "../platform/panel-view";
@@ -35,9 +36,10 @@ async function setup() {
 	const book = await registerBook(vault, "Book", "Book", "en", rnd);
 	const one = await addChapter(vault, book, [], { designation: "Chapter 1", notePath: "Book/one.md" }, rnd);
 	const two = await addChapter(vault, book, [one], { designation: "Chapter 2", notePath: "Book/two.md" }, rnd);
-	const view = new BookHarnessView({ app: fake.app } as never);
+	const runner = new JobRunner();
+	const view = new BookHarnessView({ app: fake.app } as never, runner);
 	(view as unknown as { app: unknown }).app = fake.app;
-	return { fake, vault, book, one, two, view, store: fake.store };
+	return { fake, vault, book, one, two, view, store: fake.store, runner };
 }
 
 const text = (v: BookHarnessView) => v.contentEl.textContent as string;
@@ -247,23 +249,13 @@ describe("BookHarnessView edge cases", () => {
 		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
 		button(view, "Update word counts").click();
 		await vi.waitFor(() => expect(text(view)).toContain("1 words"));
-		expect(Notice.instances.at(-1)?.message).toBe("Counted 2 chapters.");
+		expect(Notice.instances.at(-1)?.message).toBe("Counted 2 of 2 chapters.");
 		store.set("Book/one.md", "One two three");
 		view.markDirty();
 		await vi.waitFor(() => expect(text(view)).toContain("out of date"));
 		store.set("Book/two.md", "Changed");
 		button(view, "Update word counts").click();
-		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Counted 2 chapters."));
-	});
-
-	it("uses the singular for one counted chapter", async () => {
-		const { fake, view, store } = await setup();
-		store.delete("Book/two.md");
-		fake.state.active = "Book/one.md";
-		await view.onOpen();
-		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
-		button(view, "Update word counts").click();
-		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toMatch(/^Counted 1 chapter\./));
+		await vi.waitFor(() => expect(Notice.instances.filter((n) => n.message === "Counted 2 of 2 chapters.")).toHaveLength(2));
 	});
 
 	it("tells the author when a count could not be stored or failed", async () => {
@@ -275,7 +267,65 @@ describe("BookHarnessView edge cases", () => {
 		let n = 0;
 		fake.appAny.vault.read = (f: { path: string }) => (f.path === "Book/one.md" && ++n === 2 ? Promise.resolve("changed meanwhile") : f.path === "Book/two.md" ? Promise.reject(new Error("io")) : read(f));
 		button(view, "Update word counts").click();
-		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toMatch(/Counted 0 chapters\. Not stored: Chapter 1 changed.* Failed: Chapter 2: io/));
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("Counted 0 of 2 chapters; 1 failed."));
+		const jobText = () => [...fake.store].find(([p]) => p.includes("/jobs/"))?.[1] ?? "";
+		await vi.waitFor(() => expect(jobText()).toContain("Chapter 1 changed while it was being counted."));
+		expect(jobText()).toContain('"message": "io"');
+	});
+
+	it("shows progress, lets the author cancel, and then dismiss the finished job", async () => {
+		const { fake, view, runner, store } = await setup();
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Not counted yet"));
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((r) => (release = r));
+		const create = fake.appAny.vault.create;
+		let held = false;
+		// Hold the first stored result so the job is observably running; only a job ever writes state notes.
+		fake.appAny.vault.create = async (p: string, t: string) => {
+			if (p.includes("/state/") && !held) {
+				held = true;
+				await gate;
+			}
+			return create(p, t);
+		};
+		button(view, "Update word counts").click();
+		await vi.waitFor(() => expect(text(view)).toContain("Counting words: 0 of 2 chapters"));
+		button(view, "Update word counts").click();
+		expect(Notice.instances.at(-1)?.message).toBe("A word count is already running for this book.");
+		button(view, "Cancel").click();
+		release();
+		await vi.waitFor(() => expect(text(view)).toContain("Word count canceled: 1 of 2 chapters"));
+		expect(runner.hasRunningJob("x")).toBe(false);
+		button(view, "Dismiss").click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("Word count canceled"));
+		expect([...store.keys()].some((p) => p.includes("/jobs/"))).toBe(true);
+	});
+
+	it("shows a job left running by a previous session as interrupted and lets the author dismiss it", async () => {
+		const { fake, view, store, book, one } = await setup();
+		const job = `---\nbh_schema: 1\nbh_type: job\nbh_id: jb_aaaaaaaaaaaaaaaa\nbh_book: ${book.id}\n---\n\`\`\`bh-records\n${JSON.stringify({ id: "jb_aaaaaaaaaaaaaaaa", bookId: book.id, kind: "stats.words", state: "running", authorization: { action: "x", by: "user", at: "t" }, startedAt: "t", items: [{ chapterId: one.id, designation: "Chapter 1", state: "pending" }] })}\n\`\`\`\n`;
+		store.set(`Book/_book-harness/jobs/jb_aaaaaaaaaaaaaaaa.md`, job);
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Word count interrupted: 0 of 1 chapters"));
+		expect(text(view)).toContain("Nothing was restarted");
+		expect(store.get("Book/_book-harness/jobs/jb_aaaaaaaaaaaaaaaa.md")).toContain('"state":"running"');
+		button(view, "Dismiss").click();
+		await vi.waitFor(() => expect(text(view)).not.toContain("interrupted"));
+	});
+
+	it("tells the author when the job record to dismiss has disappeared", async () => {
+		const { fake, view, store, book, one } = await setup();
+		const path = "Book/_book-harness/jobs/jb_aaaaaaaaaaaaaaaa.md";
+		store.set(path, `---\nbh_schema: 1\nbh_type: job\nbh_id: jb_aaaaaaaaaaaaaaaa\nbh_book: ${book.id}\n---\n\`\`\`bh-records\n${JSON.stringify({ id: "jb_aaaaaaaaaaaaaaaa", bookId: book.id, kind: "stats.words", state: "completed", authorization: { action: "x", by: "user", at: "t" }, startedAt: "t", items: [{ chapterId: one.id, designation: "Chapter 1", state: "done" }] })}\n\`\`\`\n`);
+		fake.state.active = "Book/one.md";
+		await view.onOpen();
+		await vi.waitFor(() => expect(text(view)).toContain("Word count finished: 1 of 1 chapters"));
+		store.delete(path);
+		button(view, "Dismiss").click();
+		await vi.waitFor(() => expect(Notice.instances.at(-1)?.message).toBe("That job record no longer exists."));
 	});
 
 	it("reports non-Error failures from an action", async () => {

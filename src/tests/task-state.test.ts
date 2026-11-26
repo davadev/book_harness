@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { registerBook, type Book } from "../core/books";
 import { addChapter, type Chapter } from "../core/chapters";
 import { GuardedVault } from "../core/guarded-vault";
-import { chapterStats, loadRecords, runWordStats, saveRecord, statePath, statusOf, updateAllStats, type TaskRecord } from "../core/task-state";
+import { chapterStats, loadRecords, runWordStats, saveRecord, statePath, statusOf, type TaskRecord } from "../core/task-state";
 import { FakeVault, counterRandom } from "./__mocks__/fakeVault";
 
 const NOW = () => "2026-11-26T12:00:00.000Z";
@@ -60,29 +60,6 @@ describe("word count task", () => {
 	it("never counts a chapter before it has been run", async () => {
 		const { vault, book, two } = await setup();
 		expect(await chapterStats(vault, book, two)).toEqual({ words: null, status: "not_processed" });
-	});
-});
-
-describe("batch update", () => {
-	it("counts what it can, reports what failed, and keeps successes", async () => {
-		const { raw, vault, book, one, two, planned } = await setup();
-		const original = raw.read.bind(raw);
-		raw.read = (p) => (p === "Book/two.md" ? Promise.reject(new Error("io")) : original(p));
-		const summary = await updateAllStats(vault, book, [one, two, planned], NOW);
-		expect(summary).toEqual({ committed: 1, discarded: [], failed: ["Chapter 2: io"] });
-		expect((await chapterStats(vault, book, one)).status).toBe("current");
-	});
-
-	it("reports stale results and non-Error failures", async () => {
-		const { raw, vault, book, one, two } = await setup();
-		let n = 0;
-		const original = raw.read.bind(raw);
-		raw.read = (p) => {
-			if (p === "Book/one.md" && ++n === 2) return Promise.resolve("changed meanwhile");
-			if (p === "Book/two.md") return Promise.reject("odd");
-			return original(p);
-		};
-		expect(await updateAllStats(vault, book, [one, two], NOW)).toEqual({ committed: 0, discarded: ["Chapter 1 changed while it was being counted."], failed: ["Chapter 2: odd"] });
 	});
 });
 

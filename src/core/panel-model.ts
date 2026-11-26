@@ -1,5 +1,6 @@
 import { bookForPath, type Book } from "./books";
 import { readingOrder, type Chapter } from "./chapters";
+import type { JobRecord } from "./jobs";
 import type { ChapterStats } from "./task-state";
 import { deriveTodos, type Todo } from "./todos";
 
@@ -23,6 +24,8 @@ export interface Overview {
 	rows: OverviewRow[];
 	/** Required items first, each group in reading order. */
 	todos: Todo[];
+	/** Jobs to show: running, interrupted, and recently finished ones that were not dismissed. */
+	jobs: JobRecord[];
 }
 
 export function resolveContext(books: readonly Book[], activePath: string | null, chapters: readonly Chapter[]): PanelContext {
@@ -38,7 +41,7 @@ export function resolveContext(books: readonly Book[], activePath: string | null
 
 const NO_STATS: ChapterStats = { words: null, status: "not_processed" };
 
-export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map()): Overview {
+export function buildOverview(book: Book, chapters: readonly Chapter[], activePath: string | null, exists: (path: string) => boolean, stats: ReadonlyMap<string, ChapterStats> = new Map(), jobs: readonly JobRecord[] = []): Overview {
 	const ordered = readingOrder(chapters);
 	const todos = deriveTodos(book, chapters, exists);
 	return {
@@ -50,6 +53,7 @@ export function buildOverview(book: Book, chapters: readonly Chapter[], activePa
 			isLast: i === ordered.length - 1,
 			stats: stats.get(chapter.id) ?? NO_STATS,
 		})),
+		jobs: [...jobs],
 		todos: [...todos.filter((t) => t.severity === "required"), ...todos.filter((t) => t.severity === "info")],
 	};
 }

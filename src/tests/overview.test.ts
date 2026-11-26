@@ -4,6 +4,7 @@ import type { Book } from "../core/books";
 import type { Chapter } from "../core/chapters";
 import { buildOverview, type PanelContext } from "../core/panel-model";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
+import type { JobRecord } from "../core/jobs";
 import type { ChapterStats } from "../core/task-state";
 import { installObsidianDom } from "./__mocks__/obsidianDom";
 
@@ -12,7 +13,7 @@ const ch = (id: string, designation: string, order: number, notePath: string | n
 
 type Mocked = OverviewActions & { registerFolder: ReturnType<typeof vi.fn> } & Record<keyof BookActions, ReturnType<typeof vi.fn>>;
 function actions(): Mocked {
-	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn() };
+	const book = { openNote: vi.fn(), setStatus: vi.fn(), move: vi.fn(), rename: vi.fn(), unbind: vi.fn(), promoteActive: vi.fn(), planChapter: vi.fn(), updateStats: vi.fn(), cancelJob: vi.fn(), dismissJob: vi.fn() };
 	return { ...book, registerFolder: vi.fn(), forBook: () => book as never } as never;
 }
 
@@ -121,6 +122,28 @@ describe("overview rendering", () => {
 		expect(notes).toEqual(["12,345 words", "7 words (out of date: the text changed since it was counted)", "Not counted yet", "3 words (last count failed)", "4 words (last count was canceled)"]);
 		click("Update word counts");
 		expect(a.updateStats).toHaveBeenCalled();
+	});
+
+	it("shows jobs with their problems and the right button for each state", () => {
+		const a = actions();
+		const job = (state: JobRecord["state"]): JobRecord => ({
+			id: `jb_${state}`, bookId: "bk1", kind: "stats.words", state, authorization: { action: "x", by: "user", at: "t" }, startedAt: "t",
+			items: [{ chapterId: "a", designation: "Chapter 1", state: "done" }, { chapterId: "b", designation: "Chapter 2", state: "failed", message: "io" }, { chapterId: "c", designation: "Chapter 3", state: "pending", message: "Not run: the app closed first." }],
+		});
+		const ctx = { kind: "book", book, activePath: "A/z.md", role: "manuscript", chapterId: null } as const;
+		const overview = { ...buildOverview(book, [], null, () => true), jobs: [job("running"), job("interrupted"), job("completed")] };
+		renderOverview(root, ctx, overview, a);
+		const boxes = Array.from(root.querySelectorAll(".bh-job"));
+		expect(boxes.map((b) => b.querySelector("strong")?.textContent)).toEqual(["Counting words: 1 of 3 chapters", "Word count interrupted: 1 of 3 chapters", "Word count finished: 1 of 3 chapters"]);
+		expect(boxes[0]?.textContent).toContain("Chapter 2: io");
+		expect(boxes[0]?.textContent).not.toContain("Not run");
+		expect(boxes[1]?.textContent).toContain("Nothing was restarted");
+		(boxes[0]?.querySelector("button") as HTMLButtonElement).click();
+		(boxes[1]?.querySelector("button") as HTMLButtonElement).click();
+		expect(a.cancelJob).toHaveBeenCalledWith("jb_running");
+		expect(a.dismissJob).toHaveBeenCalledWith("jb_interrupted");
+		expect(boxes[0]?.querySelector("button")?.textContent).toBe("Cancel");
+		expect(boxes[2]?.querySelector("button")?.textContent).toBe("Dismiss");
 	});
 
 	it("lists to-dos, required first, and opens the note for one that has a note", () => {

@@ -104,27 +104,3 @@ export async function chapterStats(vault: VaultPort, book: Book, chapter: Chapte
 	const current = taskInput("stats.words", chapter, await vault.read(chapter.notePath));
 	return { words: record?.result?.words ?? null, status: statusOf(record, current.fingerprint) };
 }
-
-export interface UpdateSummary {
-	committed: number;
-	discarded: string[];
-	failed: string[];
-}
-
-/**
- * User-initiated batch: count every chapter that has a note. One chapter failing does not affect the others;
- * results that went stale mid-run are reported, not stored.
- */
-export async function updateAllStats(vault: VaultPort, book: Book, chapters: readonly Chapter[], now: () => string): Promise<UpdateSummary> {
-	const summary: UpdateSummary = { committed: 0, discarded: [], failed: [] };
-	for (const chapter of chapters.filter((c) => c.notePath !== null)) {
-		try {
-			const run = await runWordStats(vault, book, chapter, now);
-			if (run.kind === "committed") summary.committed++;
-			else summary.discarded.push(run.reason);
-		} catch (e) {
-			summary.failed.push(`${chapter.designation}: ${e instanceof Error ? e.message : String(e)}`);
-		}
-	}
-	return summary;
-}

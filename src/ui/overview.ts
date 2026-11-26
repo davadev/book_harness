@@ -1,6 +1,7 @@
 import { CHAPTER_STATUSES, type ChapterStatus } from "../core/status";
 import type { Book } from "../core/books";
 import type { Overview, PanelContext } from "../core/panel-model";
+import type { JobRecord } from "../core/jobs";
 import type { ChapterStats } from "../core/task-state";
 
 /** Everything the overview can ask the platform to do. Each is an explicit author action. */
@@ -13,6 +14,8 @@ export interface BookActions {
 	promoteActive(path: string): void;
 	planChapter(): void;
 	updateStats(): void;
+	cancelJob(jobId: string): void;
+	dismissJob(jobId: string): void;
 }
 
 export interface OverviewActions {
@@ -28,6 +31,24 @@ const STATUS_LABEL: Record<ChapterStatus, string> = {
 	revising: "Revising",
 	finalized: "Finalized",
 };
+
+const JOB_LABEL: Record<JobRecord["state"], string> = {
+	running: "Counting words",
+	completed: "Word count finished",
+	canceled: "Word count canceled",
+	interrupted: "Word count interrupted",
+	dismissed: "",
+};
+
+function renderJob(root: HTMLElement, job: JobRecord, actions: BookActions): void {
+	const box = root.createDiv({ cls: "bh-job" });
+	const done = job.items.filter((i) => i.state === "done").length;
+	box.createEl("strong", { text: `${JOB_LABEL[job.state]}: ${done} of ${job.items.length} chapters` });
+	if (job.state === "interrupted") box.createDiv({ cls: "bh-note", text: "The app closed before it finished. Nothing was restarted; run it again if you want the rest." });
+	for (const item of job.items.filter((i) => i.message && i.state !== "pending")) box.createDiv({ cls: "bh-note", text: `${item.designation}: ${item.message}` });
+	const label = job.state === "running" ? "Cancel" : "Dismiss";
+	box.createEl("button", { cls: "bh-button", text: label }).addEventListener("click", () => (job.state === "running" ? actions.cancelJob(job.id) : actions.dismissJob(job.id)));
+}
 
 function statsLine(stats: ChapterStats): string {
 	const words = stats.words === null ? "Not counted yet" : `${stats.words.toLocaleString("en-US")} words`;
@@ -72,6 +93,7 @@ export function renderOverview(root: HTMLElement, ctx: PanelContext, overview: O
 	bar.createEl("button", { cls: "bh-button", text: "Update word counts" }).addEventListener("click", () => bookActions.updateStats());
 
 	if (!overview) return;
+	for (const job of overview.jobs) renderJob(root, job, bookActions);
 	if (overview.todos.length > 0) {
 		const box = root.createDiv({ cls: "bh-todos" });
 		box.createEl("h4", { text: `To do (${overview.todos.length})` });

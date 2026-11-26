@@ -3,7 +3,8 @@ import { listBooks, type Book } from "../core/books";
 import { addChapter, bindNote, listChapters, readingOrder, setDesignation, setOrder, setStatus, type Chapter } from "../core/chapters";
 import type { ChapterStatus } from "../core/status";
 import { buildOverview, orderToMove, resolveContext } from "../core/panel-model";
-import { chapterStats, updateAllStats, type ChapterStats } from "../core/task-state";
+import { JobRunner, dismissJob, listJobs, presentJobs } from "../core/jobs";
+import { chapterStats, type ChapterStats } from "../core/task-state";
 import { renderOverview, type BookActions, type OverviewActions } from "../ui/overview";
 import { createGuardedVault } from "./guarded-vault";
 import { PromptModal } from "./prompt-modal";
@@ -17,7 +18,7 @@ export class BookHarnessView extends ItemView {
 	private drawing = false;
 	private timer = 0;
 
-	constructor(leaf: WorkspaceLeaf) {
+	constructor(leaf: WorkspaceLeaf, private readonly runner: JobRunner) {
 		super(leaf);
 	}
 
@@ -80,7 +81,9 @@ export class BookHarnessView extends ItemView {
 			const shown = book ? chapters.filter((c) => c.bookId === book.id) : [];
 			const stats = new Map<string, ChapterStats>();
 			for (const c of shown) stats.set(c.id, await chapterStats(vault, book as Book, c));
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats) : null;
+			const jobs = book ? await listJobs(vault, book) : { jobs: [], problems: [] };
+			problems.push(...jobs.problems);
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner)) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -114,11 +117,29 @@ export class BookHarnessView extends ItemView {
 			rename: (id, current) => new PromptModal(this.app, "Rename chapter", "Designation", current, (v) => run(setDesignation(vault, book, chapters, find(id), v))).open(),
 			unbind: (id) => run(bindNote(vault, book, chapters, find(id), null)),
 			promoteActive: (path) => new PromptModal(this.app, "Make this note a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v, notePath: path }, platformRandom))).open(),
-			updateStats: () =>
-				void updateAllStats(vault, book, chapters, () => new Date().toISOString()).then((r) => {
-					new Notice(`Counted ${r.committed} chapter${r.committed === 1 ? "" : "s"}.${r.discarded.length ? ` Not stored: ${r.discarded.join(" ")}` : ""}${r.failed.length ? ` Failed: ${r.failed.join(" ")}` : ""}`, 8000);
-					this.markDirty();
-				}),
+			updateStats: () => {
+				if (this.runner.hasRunningJob(book.id)) {
+					new Notice("A word count is already running for this book.", 8000);
+					return;
+				}
+				void this.runner.runWordCounts({ vault, book, random: platformRandom, now: () => new Date().toISOString(), onChange: () => this.scheduleRefresh() }, chapters).then(
+					(job) => {
+						const failed = job.items.filter((i) => i.state === "failed").length;
+						new Notice(`Counted ${job.items.filter((i) => i.state === "done").length} of ${job.items.length} chapters${failed ? `; ${failed} failed` : ""}.`, 8000);
+						this.markDirty();
+					},
+					fail,
+				);
+			},
+			cancelJob: (id) => this.runner.cancel(id),
+			dismissJob: (id) =>
+				run(
+					listJobs(vault, book).then(({ jobs }) => {
+						const job = jobs.find((j) => j.id === id);
+						if (!job) throw new Error("That job record no longer exists.");
+						return dismissJob(vault, book, job.state === "running" ? { ...job, state: "interrupted" } : job);
+					}),
+				),
 			planChapter: () => new PromptModal(this.app, "Plan a chapter", "Designation", "", (v) => run(addChapter(vault, book, chapters, { designation: v }, platformRandom))).open(),
 		};
 	}
