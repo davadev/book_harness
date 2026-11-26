@@ -13,10 +13,17 @@ function makePlugin(files: Record<string, string> = {}, failWrite = false) {
 			return Promise.resolve();
 		}),
 	};
-	const plugin = new BookHarnessPlugin({ vault: { adapter, configDir: ".obsidian" } } as never, { id: "book-harness", dir: ".obsidian/plugins/book-harness" } as never);
+	const vaultHandlers: Array<(...a: unknown[]) => unknown> = [];
+	const workspace = {
+		onLayoutReady: (cb: () => void) => cb(),
+		getLeavesOfType: vi.fn(() => [] as unknown[]),
+		getRightLeaf: vi.fn((): unknown => null),
+		revealLeaf: vi.fn(() => Promise.resolve()),
+	};
+	const plugin = new BookHarnessPlugin({ vault: { adapter, configDir: ".obsidian", on: (_n: string, cb: (...a: unknown[]) => unknown) => (vaultHandlers.push(cb), {}), getMarkdownFiles: () => [] }, workspace } as never, { id: "book-harness", dir: ".obsidian/plugins/book-harness" } as never);
 	const cleanups: Array<() => void> = [];
 	(plugin as unknown as { register: (f: () => void) => void }).register = (f) => cleanups.push(f);
-	return { plugin, written, cleanups };
+	return { plugin, written, cleanups, workspace, vaultHandlers };
 }
 
 const stub = (p: BookHarnessPlugin) => p as unknown as { settingTabs: unknown[]; data: unknown };
@@ -34,12 +41,40 @@ describe("BookHarnessPlugin", () => {
 		const { plugin } = makePlugin();
 		const added: Array<{ id: string; callback: () => void }> = [];
 		(plugin as unknown as { addCommand: (c: { id: string; callback: () => void }) => void }).addCommand = (c) => added.push(c);
-		(plugin.app as unknown as { workspace: unknown }).workspace = { getActiveFile: () => null };
+		Object.assign((plugin.app as unknown as { workspace: object }).workspace, { getActiveFile: () => null });
 		Notice.instances.length = 0;
 		await plugin.onload();
-		expect(added.map((c) => c.id)).toEqual(["register-book"]);
+		expect(added.map((c) => c.id)).toEqual(["register-book", "open-panel"]);
 		added[0]?.callback();
 		expect(Notice.instances[0]?.message).toMatch(/Open a note/);
+	});
+
+	it("registers the panel view, command, ribbon icon and a rename follower after layout is ready", async () => {
+		const { plugin, workspace, vaultHandlers } = makePlugin();
+		const p = plugin as unknown as { views: Map<string, (leaf: unknown) => unknown>; ribbon: Array<{ cb: () => unknown }>; events: unknown[]; commands: Array<{ id: string; callback: () => unknown }> };
+		await plugin.onload();
+		expect(p.views.has("book-harness-panel")).toBe(true);
+		expect(p.views.get("book-harness-panel")?.({ app: {} })).toBeDefined();
+		expect(p.events).toHaveLength(1);
+		vaultHandlers[0]?.({ path: "a.md" }, "b.md");
+		const leaf = { setViewState: vi.fn(() => Promise.resolve()) };
+		workspace.getRightLeaf.mockReturnValue(leaf);
+		p.ribbon[0]?.cb();
+		await vi.waitFor(() => expect(workspace.revealLeaf).toHaveBeenCalledWith(leaf));
+		expect(leaf.setViewState).toHaveBeenCalledWith({ type: "book-harness-panel", active: true });
+		// an existing panel is revealed, not duplicated
+		const existing = { setViewState: vi.fn(() => Promise.resolve()) };
+		workspace.getLeavesOfType.mockReturnValue([existing]);
+		await plugin.openPanel();
+		expect(existing.setViewState).not.toHaveBeenCalled();
+		expect(workspace.revealLeaf).toHaveBeenCalledWith(existing);
+		// no free leaf: nothing happens
+		workspace.getLeavesOfType.mockReturnValue([]);
+		workspace.getRightLeaf.mockReturnValue(null);
+		workspace.revealLeaf.mockClear();
+		await plugin.openPanel();
+		expect(workspace.revealLeaf).not.toHaveBeenCalled();
+		p.commands.find((c) => c.id === "open-panel")?.callback();
 	});
 
 	it("clears the crash counter once the launch survives", async () => {

@@ -194,7 +194,22 @@ export class Notice {
   setMessage(message: string) { this.message = message; }
   hide() {}
 }
-export class ItemView {}
+export class ItemView {
+  app: any;
+  leaf: any;
+  contentEl: any = hasDom() ? document.createElement("div") : undefined;
+  containerEl: any = hasDom() ? document.createElement("div") : undefined;
+  registered: unknown[] = [];
+  constructor(leaf?: any) {
+    this.leaf = leaf;
+    this.app = leaf?.app;
+  }
+  getViewType(): string { return ""; }
+  getDisplayText(): string { return ""; }
+  getIcon(): string { return ""; }
+  registerEvent(ref: unknown) { this.registered.push(ref); }
+  register(cb: () => void) { this.registered.push(cb); }
+}
 /** Minimal TextFileView: records the header actions a view registered. Extend as your views need more of the real class. */
 export class TextFileView {
   /** Obsidian's header action: recorded so a test can assert which actions a view registered. */
