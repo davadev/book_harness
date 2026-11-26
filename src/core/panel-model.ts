@@ -60,8 +60,8 @@ export interface Overview {
 	timeline: TimelineView | null;
 	/** Statistics the author asked for, or null while none are shown. Never model output. */
 	statistics: BookStatistics | null;
-	/** Questions asked of the book in this session, newest first, and the one being answered now. */
-	ask: { history: AskResult[]; pending: string | null };
+	/** Saved answers to questions asked of the book, newest first, and the question being answered now. */
+	ask: { history: Array<{ id: string; result: AskResult }>; pending: string | null };
 	/** Translation state per target language of the book; empty when the book has none. */
 	translations: LanguageOverview[];
 	/** Event suggestions per chapter that the author has not decided yet. */

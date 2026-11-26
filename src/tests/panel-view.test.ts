@@ -1289,6 +1289,12 @@ describe("BookHarnessView ask the book", () => {
 		expect(sent).toContain("Question: Who sailed at dawn?");
 		expect(sent).toContain("Edmund Voss sailed at dawn");
 		await vi.waitFor(() => expect(view.contentEl.querySelectorAll(".bh-answer").length).toBe(2));
+		// the answers are saved as notes, so they are still there after the view is closed and opened again
+		expect([...store.keys()].filter((p) => p.includes("/chats/"))).toHaveLength(2);
+		view.markDirty();
+		(view.contentEl.querySelector('button[aria-label="Remove this answer: Again?"]') as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(view.contentEl.querySelectorAll(".bh-answer").length).toBe(1));
+		expect([...store.keys()].filter((p) => p.includes("/chats/"))).toHaveLength(2);
 	});
 
 	it("includes the author's computed chronology, refuses a second question while one is running, and reports a failed call", async () => {

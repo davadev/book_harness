@@ -36,8 +36,9 @@ import { buildEpub } from "../core/publishing/epub";
 import { blocksExport, planExport } from "../core/publishing/validate";
 import { exportFileName, writeExport } from "./export-writer";
 import { analyzeBook, type BookStatistics, type Occurrence } from "../core/stats/statistics";
+import { loadAnswers, retireAnswer, saveAnswer, type SavedAnswer } from "../core/agent/chats";
 import { checkConsistency, decideFinding, loadFindings, needsSecondLook, recordFindings, type Place } from "../core/agent/consistency";
-import { askBook, chronologyText, gatherEvidence, type AskResult, type Citation } from "../core/agent/ask";
+import { askBook, chronologyText, gatherEvidence, type Citation } from "../core/agent/ask";
 import { acceptCandidate, candidatesAreCurrent, findEvents, loadCandidates, rejectCandidate } from "../core/temporal/events";
 import { loadTranslationOverview, type LanguageOverview } from "../core/translation/overview";
 import { loadGlossary, syncTranslation, type Resolution } from "../core/translation/translate";
@@ -71,8 +72,6 @@ export class BookHarnessView extends ItemView {
 	/** Statistics the author asked to see, with the book they belong to. Cleared when another book is shown. */
 	private statistics: { bookId: string; data: BookStatistics } | null = null;
 	private useMeaning = false;
-	/** Questions asked of each book in this session, newest first; not saved anywhere. */
-	private readonly asked = new Map<string, AskResult[]>();
 	private asking: string | null = null;
 	private checking = false;
 	private readonly askDisclosed = new Set<string>();
@@ -172,6 +171,9 @@ export class BookHarnessView extends ItemView {
 					const relations = found.relations.filter((r) => found.decided[r.id] === undefined);
 					if (events.length + relations.length > 0) eventCandidates.push({ chapterId: c.id, designation: c.designation, current: candidatesAreCurrent(found, await vault.read(c.notePath as string)), events, relations });
 				}
+			const saved = book ? await loadAnswers(vault, book) : { answers: [], problems: [] };
+			problems.push(...saved.problems);
+			const answers = saved.answers;
 			const findings: Array<{ entityName: string; finding: Finding; secondLook: boolean }> = [];
 			if (book) {
 				const found = [];
@@ -184,7 +186,7 @@ export class BookHarnessView extends ItemView {
 			}
 			const timeline = book ? await loadTimeline(vault, book) : null;
 			if (timeline) problems.push(...timeline.problems);
-			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: this.asked.get(book.id) ?? [], pending: this.asking }, translations, eventCandidates, findings) : null;
+			const overview = book ? buildOverview(book, shown, active, (p) => vault.exists(p), stats, presentJobs(jobs.jobs, this.runner), findConflictCopies(book, vault.markdownPaths()), manual, summaries, proposals.proposals, coverage, activeEntities(entityData.entities), unsupported, selected, this.lastSearch, { available: embedding !== null, enabled: this.useMeaning, status: meaningStatus }, this.contexts, timeline && timeline.events.length > 0 ? buildTimeline(timeline.events, timeline.constraints, shown) : null, this.statistics && this.statistics.bookId === book.id ? this.statistics.data : null, { history: answers.map((a) => ({ id: a.id, result: a.result })), pending: this.asking }, translations, eventCandidates, findings) : null;
 			renderOverview(this.contentEl, ctx, overview, this.actions(chapters), problems);
 		} catch (e) {
 			this.contentEl.empty();
@@ -540,7 +542,7 @@ export class BookHarnessView extends ItemView {
 						const chronology = t.events.length > 0 ? chronologyText(buildTimeline(t.events, t.constraints, chapters)) : null;
 						const now = () => new Date().toISOString();
 						const result = await askBook({ client: new OllamaClient(this.host.network, base), model: device.generationModel, diagnostics: this.host.diagnostics, now, sleep }, q, evidence, chronology);
-						this.asked.set(book.id, [result, ...(this.asked.get(book.id) ?? [])].slice(0, 10));
+						await saveAnswer(vault, book, result, now(), platformRandom);
 					})().catch(fail).finally(() => {
 						this.asking = null;
 						this.markDirty();
@@ -552,6 +554,7 @@ export class BookHarnessView extends ItemView {
 					run1();
 				}).open();
 			},
+			removeAnswer: (id) => run(loadAnswers(vault, book, 1000).then(({ answers }) => retireAnswer(vault, book, answers.find((a) => a.id === id) as SavedAnswer))),
 			openCitation: (c: Citation) => void this.openPassage(c.result),
 			translate: (language) => {
 				const ready = this.readyToSend(book, chapters);

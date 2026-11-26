@@ -56,6 +56,7 @@ export interface BookActions {
 	translate(language: string): void;
 	resolveConflict(chapterId: string, language: string, conflictId: string, choice: "mine" | "machine"): void;
 	ask(question: string): void;
+	removeAnswer(id: string): void;
 	openCitation(c: Citation): void;
 	openOccurrence(o: Occurrence, word: string): void;
 	addTimeRelation(): void;
@@ -199,7 +200,7 @@ function renderAsk(root: HTMLElement, ask: Overview["ask"], actions: BookActions
 	});
 	box.createDiv({ cls: "bh-note", text: "Your question and a few passages found in your chapters are sent to your model server. The answer can be wrong: read the quotes. Nothing is changed in your book." });
 	if (ask.pending !== null) box.createDiv({ cls: "bh-note", text: `Asking: ${ask.pending}` });
-	for (const a of ask.history) {
+	for (const { id, result: a } of ask.history) {
 		const item = box.createDiv({ cls: "bh-answer" });
 		item.createEl("strong", { text: a.question });
 		item.createSpan({ cls: "bh-badge", text: ASK_STATUS[a.status] });
@@ -212,6 +213,7 @@ function renderAsk(root: HTMLElement, ask: Overview["ask"], actions: BookActions
 		const facts = [`Based on ${a.excerpts} passage${a.excerpts === 1 ? "" : "s"}${a.chapters.length ? ` from ${a.chapters.join(", ")}` : ""}.`, a.usedChronology ? "The timeline you built was included." : "", a.dropped > 0 ? `${a.dropped} quote${a.dropped === 1 ? " was" : "s were"} left out because ${a.dropped === 1 ? "it does" : "they do"} not appear in the text.` : ""].filter((x) => x !== "");
 		item.createDiv({ cls: "bh-note", text: facts.join(" ") });
 		for (const issue of a.issues) item.createDiv({ cls: "bh-note", text: issue });
+		item.createEl("button", { cls: "bh-icon-button", text: "Remove", attr: { "aria-label": `Remove this answer: ${a.question}` } }).addEventListener("click", () => actions.removeAnswer(id));
 	}
 }
 

@@ -45,7 +45,7 @@ Status values: `Not started` / `In progress` / `Passed (CI)` / `Passed (CI + dev
 | AC-SR-1 | BM25 finds unique invented terminology; semantic retrieval finds a paraphrased passage; hybrid results carry valid references and linked entities/events. | U, I, R | 7 | Passed (CI, scripted embeddings): invented term found by keyword, paraphrase found by meaning only; real-embedding evaluation (R) not run |
 | AC-SR-2 | Stale or missing embedding index disclosed; current keyword fallback works. | U, UI | 7 | Passed (CI) |
 | AC-AG-1 | Agent answers a cross-chapter question with real supporting passage links and correct entity context; missing/unresolved evidence acknowledged. | M, R, UI | 11 | Partial: passage links that open the exact place, quote verification, "not answered" when evidence is missing and the computed chronology with its uncertainty are tested with a scripted model; never evaluated with a real model; entity context only as names in the passage |
-| AC-AG-2 | Agent cannot edit manuscript or knowledge; tool-call limits and cancellation enforced; conversation persisted in book Markdown. | U, I, M | 11 | Partial: the agent has no write path and no tools (one model call, bounded); conversation is not persisted yet and there is no cancel |
+| AC-AG-2 | Agent cannot edit manuscript or knowledge; tool-call limits and cancellation enforced; conversation persisted in book Markdown. | U, I, M | 11 | Partial: the agent has no write path and no tools (one model call, bounded); answers are saved as Markdown notes; there is no cancel and no multi-turn conversation yet |
 
 ## Temporal engine
 
